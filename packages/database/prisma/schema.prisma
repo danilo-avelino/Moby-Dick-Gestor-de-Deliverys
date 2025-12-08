@@ -1,0 +1,1132 @@
+// Prisma Schema for Delivery SaaS Platform
+// Supports all 4 phases: Integrations, Stock, Recipes, CMV, Menu Analysis, AI, Gamification
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// AUTHENTICATION & MULTI-TENANCY
+// ==========================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  phone             String?
+  avatarUrl         String?
+  role              UserRole  @default(STAFF)
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
+  mfaEnabled        Boolean   @default(false)
+  mfaSecret         String?
+  
+  // Multi-tenancy
+  restaurantId      String?
+  restaurant        Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
+  
+  // Relations
+  sessions          Session[]
+  stockMovements    StockMovement[]
+  portioningBatches PortioningBatch[]
+  alerts            Alert[]
+  goals             Goal[]
+  achievements      Achievement[]
+  auditLogs         AuditLog[]
+  
+  @@index([email])
+  @@index([restaurantId])
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token         String   @unique
+  refreshToken  String   @unique
+  expiresAt     DateTime
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+  
+  @@index([userId])
+  @@index([token])
+}
+
+model Restaurant {
+  id              String    @id @default(cuid())
+  name            String
+  tradeName       String?
+  cnpj            String?   @unique
+  email           String?
+  phone           String?
+  logoUrl         String?
+  
+  // Address
+  street          String?
+  number          String?
+  complement      String?
+  neighborhood    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String    @default("BR")
+  
+  // Settings
+  timezone        String    @default("America/Sao_Paulo")
+  currency        String    @default("BRL")
+  locale          String    @default("pt-BR")
+  
+  // CMV Settings
+  targetCmvPercent  Float     @default(30.0)
+  alertCmvThreshold Float     @default(35.0)
+  
+  // Subscription
+  plan            String    @default("free")
+  planExpiresAt   DateTime?
+  
+  // White-label
+  primaryColor    String    @default("#6366f1")
+  secondaryColor  String    @default("#8b5cf6")
+  customDomain    String?
+  
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  users           User[]
+  integrations    Integration[]
+  products        Product[]
+  categories      ProductCategory[]
+  suppliers       Supplier[]
+  recipes         Recipe[]
+  cmvSnapshots    CMVSnapshot[]
+  alerts          Alert[]
+  alertRules      AlertRule[]
+  goals           Goal[]
+  menuAnalyses    MenuAnalysis[]
+  portioningProcesses PortioningProcess[]
+  purchaseSuggestions PurchaseSuggestion[]
+  consumptionAnomalies ConsumptionAnomaly[]
+  orders          Order[]
+  
+  @@index([cnpj])
+}
+
+// ==========================================
+// ORDERS & WORK TIMES
+// ==========================================
+
+model Order {
+  id                      String    @id @default(cuid())
+  restaurantId            String
+  restaurant              Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  externalId              String    // Order ID from logistics provider
+  logisticsProvider       String    // "AGILIZONE", "FOODY", "IFOOD", etc.
+  integrationId           String?
+  
+  // Timing timestamps (nullable except orderDatetime)
+  orderDatetime           DateTime  // When order was received
+  readyDatetime           DateTime? // When marked as ready
+  outForDeliveryDatetime  DateTime? // When driver picked up
+  deliveredDatetime       DateTime? // When delivered
+  
+  // Calculated times (in minutes, nullable)
+  prepTime                Float?    // ready - order
+  pickupTime              Float?    // outForDelivery - ready
+  deliveryTime            Float?    // delivered - outForDelivery
+  totalTime               Float?    // delivered - order
+  
+  // Additional info
+  customerName            String?
+  deliveryAddress         String?
+  orderValue              Float?
+  
+  metadata                Json?     // Raw data from integration
+  
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  
+  @@unique([restaurantId, externalId, logisticsProvider])
+  @@index([restaurantId])
+  @@index([orderDatetime])
+  @@index([logisticsProvider])
+}
+
+// ==========================================
+// INTEGRATIONS (Phase 1)
+// ==========================================
+
+enum IntegrationPlatform {
+  IFOOD
+  RAPPI
+  UBER_EATS
+  LINX
+  TOTVS
+  STONE
+  BLING
+  TINY
+  CUSTOM_API
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  PENDING_AUTH
+  SYNCING
+}
+
+model Integration {
+  id              String              @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  platform        IntegrationPlatform
+  name            String
+  status          IntegrationStatus   @default(PENDING_AUTH)
+  
+  // Credentials (encrypted)
+  credentials     Json?
+  
+  // OAuth tokens
+  accessToken     String?
+  refreshToken    String?
+  tokenExpiresAt  DateTime?
+  
+  // Sync settings
+  syncFrequencyMinutes Int           @default(15)
+  lastSyncAt      DateTime?
+  nextSyncAt      DateTime?
+  
+  // Field mapping
+  fieldMapping    Json?
+  
+  // Webhook
+  webhookUrl      String?
+  webhookSecret   String?
+  
+  // Metadata
+  externalId      String?
+  metadata        Json?
+  
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  // Relations
+  syncLogs        SyncLog[]
+  
+  @@unique([restaurantId, platform, externalId])
+  @@index([restaurantId])
+  @@index([status])
+}
+
+enum SyncType {
+  FULL
+  INCREMENTAL
+  WEBHOOK
+  MANUAL
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+model SyncLog {
+  id                String        @id @default(cuid())
+  integrationId     String
+  integration       Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  
+  syncType          SyncType
+  status            SyncStatus    @default(PENDING)
+  
+  recordsProcessed  Int           @default(0)
+  recordsCreated    Int           @default(0)
+  recordsUpdated    Int           @default(0)
+  recordsFailed     Int           @default(0)
+  
+  errors            Json?
+  metadata          Json?
+  
+  startedAt         DateTime      @default(now())
+  completedAt       DateTime?
+  
+  @@index([integrationId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+// ==========================================
+// STOCK CONTROL (Phase 1)
+// ==========================================
+
+model ProductCategory {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  parentId        String?
+  parent          ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        ProductCategory[] @relation("CategoryHierarchy")
+  
+  sortOrder       Int               @default(0)
+  isActive        Boolean           @default(true)
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  products        Product[]
+  recipes         Recipe[]
+  
+  @@unique([restaurantId, name, parentId])
+  @@index([restaurantId])
+}
+
+enum UnitType {
+  WEIGHT    // kg, g, mg
+  VOLUME    // L, ml
+  UNIT      // un, dozen, box
+  LENGTH    // m, cm
+}
+
+model Product {
+  id                String            @id @default(cuid())
+  restaurantId      String
+  restaurant        Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  sku               String?
+  barcode           String?
+  name              String
+  description       String?
+  
+  categoryId        String?
+  category          ProductCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  
+  // Units
+  baseUnit          String            @default("un") // kg, g, L, ml, un
+  unitType          UnitType          @default(UNIT)
+  conversions       Json?             // { "g": 1000, "un": 0.1 } -> 1kg = 1000g = 10un
+  
+  // Stock
+  currentStock      Float             @default(0)
+  minStock          Float             @default(0)
+  maxStock          Float?
+  reorderPoint      Float?
+  
+  // Cost
+  avgCost           Float             @default(0)
+  lastPurchasePrice Float             @default(0)
+  lastPurchaseDate  DateTime?
+  
+  // Perishable
+  isPerishable      Boolean           @default(false)
+  shelfLifeDays     Int?
+  
+  // Supplier
+  defaultSupplierId String?
+  defaultSupplier   Supplier?         @relation(fields: [defaultSupplierId], references: [id], onDelete: SetNull)
+  leadTimeDays      Int               @default(1)
+  
+  // Status
+  isActive          Boolean           @default(true)
+  isRawMaterial     Boolean           @default(true)
+  
+  // External
+  externalId        String?
+  imageUrl          String?
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  // Relations
+  movements         StockMovement[]
+  recipeIngredients RecipeIngredient[]
+  portioningAsRaw   PortioningProcess[] @relation("RawProduct")
+  portioningAsOutput PortioningProcess[] @relation("OutputProduct")
+  purchaseSuggestions PurchaseSuggestion[]
+  consumptionAnomalies ConsumptionAnomaly[]
+  stockBatches      StockBatch[]
+  
+  @@unique([restaurantId, sku])
+  @@unique([restaurantId, barcode])
+  @@index([restaurantId])
+  @@index([categoryId])
+  @@index([name])
+}
+
+model Supplier {
+  id              String      @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  name            String
+  tradeName       String?
+  cnpj            String?
+  email           String?
+  phone           String?
+  whatsapp        String?
+  
+  // Address
+  street          String?
+  city            String?
+  state           String?
+  zipCode         String?
+  
+  // Payment
+  paymentTerms    String?
+  
+  // Rating
+  rating          Float?
+  notes           String?
+  
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  products        Product[]
+  movements       StockMovement[]
+  
+  @@index([restaurantId])
+}
+
+enum MovementType {
+  IN          // Purchase/entry
+  OUT         // Sale/consumption
+  ADJUSTMENT  // Inventory adjustment
+  TRANSFER    // Transfer between locations
+  WASTE       // Spoilage/waste
+  PRODUCTION  // Used in production
+  RETURN      // Return to supplier
+}
+
+enum MovementReferenceType {
+  PURCHASE
+  SALE
+  RECIPE
+  ADJUSTMENT
+  PORTIONING
+  TRANSFER
+  WASTE
+  INVENTORY
+  INTEGRATION
+}
+
+model StockMovement {
+  id                  String                @id @default(cuid())
+  productId           String
+  product             Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  type                MovementType
+  quantity            Float
+  unit                String
+  
+  // Cost
+  costPerUnit         Float                 @default(0)
+  totalCost           Float                 @default(0)
+  
+  // Stock before/after
+  stockBefore         Float                 @default(0)
+  stockAfter          Float                 @default(0)
+  
+  // Reference
+  referenceType       MovementReferenceType?
+  referenceId         String?
+  
+  // Supplier (for purchases)
+  supplierId          String?
+  supplier            Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  invoiceNumber       String?
+  
+  // Batch tracking
+  batchId             String?
+  batch               StockBatch?           @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  
+  notes               String?
+  
+  // Audit
+  userId              String?
+  user                User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  createdAt           DateTime              @default(now())
+  
+  @@index([productId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([referenceType, referenceId])
+}
+
+model StockBatch {
+  id              String          @id @default(cuid())
+  productId       String
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  batchNumber     String
+  quantity        Float
+  remainingQty    Float
+  costPerUnit     Float
+  
+  manufactureDate DateTime?
+  expirationDate  DateTime?
+  
+  createdAt       DateTime        @default(now())
+  
+  movements       StockMovement[]
+  
+  @@index([productId])
+  @@index([expirationDate])
+}
+
+// ==========================================
+// RECIPES / TECHNICAL SHEETS (Phase 1)
+// ==========================================
+
+model Recipe {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  
+  categoryId      String?
+  category        ProductCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  
+  // Yield
+  yieldQuantity   Float             @default(1)
+  yieldUnit       String            @default("un")
+  
+  // Cost
+  currentCost     Float             @default(0)
+  costPerUnit     Float             @default(0)
+  costHistory     Json?             // [{ date, cost }]
+  
+  // Pricing
+  suggestedPrice  Float?
+  currentPrice    Float?
+  
+  // Additional costs
+  packagingCost   Float             @default(0)
+  laborCost       Float             @default(0)
+  overheadPercent Float             @default(0)
+  
+  // Time
+  prepTimeMinutes Int?
+  cookTimeMinutes Int?
+  
+  // Version control
+  version         Int               @default(1)
+  isActive        Boolean           @default(true)
+  
+  // Media
+  imageUrl        String?
+  instructions    String?
+  
+  // External (from integration)
+  externalId      String?
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  ingredients     RecipeIngredient[]
+  pricingSuggestions PricingSuggestion[]
+  itemPerformances ItemPerformance[]
+  
+  @@index([restaurantId])
+  @@index([categoryId])
+  @@index([name])
+}
+
+enum IngredientType {
+  PRODUCT
+  RECIPE
+}
+
+model RecipeIngredient {
+  id              String          @id @default(cuid())
+  recipeId        String
+  recipe          Recipe          @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  ingredientType  IngredientType
+  productId       String?
+  product         Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  subRecipeId     String?
+  
+  quantity        Float
+  unit            String
+  
+  // Cost snapshot
+  costSnapshot    Float           @default(0)
+  
+  notes           String?
+  isOptional      Boolean         @default(false)
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([recipeId])
+  @@index([productId])
+}
+
+enum SalesChannel {
+  DINE_IN
+  TAKEOUT
+  DELIVERY_OWN
+  DELIVERY_IFOOD
+  DELIVERY_RAPPI
+  DELIVERY_UBER
+}
+
+model PricingSuggestion {
+  id              String        @id @default(cuid())
+  recipeId        String
+  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  channel         SalesChannel
+  
+  // Costs
+  recipeCost      Float
+  packagingCost   Float         @default(0)
+  deliveryFee     Float         @default(0)
+  platformFee     Float         @default(0) // % fee from iFood, etc
+  
+  // Pricing
+  suggestedPrice  Float
+  currentPrice    Float?
+  competitorPrice Float?
+  
+  // Margins
+  markupPercent   Float
+  marginPercent   Float
+  marginAmount    Float
+  
+  generatedAt     DateTime      @default(now())
+  
+  @@index([recipeId])
+  @@index([channel])
+}
+
+// ==========================================
+// PORTIONING (Phase 2)
+// ==========================================
+
+model PortioningProcess {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  
+  // Input
+  rawProductId    String
+  rawProduct      Product           @relation("RawProduct", fields: [rawProductId], references: [id], onDelete: Cascade)
+  
+  // Output
+  outputProductId String?
+  outputProduct   Product?          @relation("OutputProduct", fields: [outputProductId], references: [id], onDelete: SetNull)
+  
+  // Expected yields
+  yieldPercent    Float             @default(100)
+  wastePercent    Float             @default(0)
+  
+  // Additional costs
+  laborCost       Float             @default(0)
+  energyCost      Float             @default(0)
+  
+  // Standard deviation for alerts
+  yieldStdDev     Float?
+  
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  batches         PortioningBatch[]
+  
+  @@index([restaurantId])
+}
+
+model PortioningBatch {
+  id                  String            @id @default(cuid())
+  processId           String
+  process             PortioningProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  
+  // Input
+  rawQuantity         Float
+  rawUnit             String
+  rawCost             Float
+  
+  // Output
+  outputQuantity      Float
+  outputUnit          String
+  outputCostPerUnit   Float
+  
+  // Actual vs expected
+  actualYieldPercent  Float
+  actualWastePercent  Float
+  
+  // Who and when
+  processedAt         DateTime          @default(now())
+  processedById       String?
+  processedBy         User?             @relation(fields: [processedById], references: [id], onDelete: SetNull)
+  
+  notes               String?
+  
+  @@index([processId])
+  @@index([processedAt])
+}
+
+// ==========================================
+// CMV - COST OF GOODS SOLD (Phase 2)
+// ==========================================
+
+model CMVSnapshot {
+  id                  String          @id @default(cuid())
+  restaurantId        String
+  restaurant          Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  date                DateTime        @db.Date
+  
+  // Revenue
+  revenue             Float           @default(0)
+  orderCount          Int             @default(0)
+  avgTicket           Float           @default(0)
+  
+  // CMV
+  theoreticalCogs     Float           @default(0)
+  realCogs            Float           @default(0)
+  
+  // Percentages
+  theoreticalPercent  Float           @default(0)
+  realPercent         Float           @default(0)
+  wastePercent        Float           @default(0)
+  wasteAmount         Float           @default(0)
+  
+  // Breakdown
+  byCategory          Json?           // [{ categoryId, revenue, cogs, percent }]
+  byChannel           Json?           // [{ channel, revenue, cogs, percent }]
+  
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  
+  @@unique([restaurantId, date])
+  @@index([restaurantId])
+  @@index([date])
+}
+
+// ==========================================
+// MENU ANALYSIS (Phase 2)
+// ==========================================
+
+model MenuAnalysis {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Totals
+  totalRevenue    Float             @default(0)
+  totalItemsSold  Int               @default(0)
+  totalCost       Float             @default(0)
+  
+  // Thresholds used
+  popularityThreshold Float         @default(0.7)
+  profitabilityThreshold Float      @default(0.7)
+  
+  createdAt       DateTime          @default(now())
+  
+  // Relations
+  items           ItemPerformance[]
+  
+  @@index([restaurantId])
+  @@index([periodStart, periodEnd])
+}
+
+enum ABCClassification {
+  A
+  B
+  C
+}
+
+enum MatrixClassification {
+  STAR           // High popularity, high profit
+  CASH_COW       // High popularity, low profit
+  PUZZLE         // Low popularity, high profit
+  DOG            // Low popularity, low profit
+}
+
+enum RecommendedAction {
+  MAINTAIN
+  PROMOTE
+  REPRICE
+  REFORMULATE
+  REMOVE
+  INVESTIGATE
+}
+
+model ItemPerformance {
+  id                    String              @id @default(cuid())
+  analysisId            String
+  analysis              MenuAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  
+  recipeId              String
+  recipe                Recipe              @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  // Sales
+  quantitySold          Int                 @default(0)
+  revenue               Float               @default(0)
+  
+  // Cost
+  cost                  Float               @default(0)
+  marginAmount          Float               @default(0)
+  marginPercent         Float               @default(0)
+  
+  // Scores (0-100)
+  popularityScore       Float               @default(0)
+  profitabilityScore    Float               @default(0)
+  
+  // Classifications
+  abcClassification     ABCClassification?
+  matrixClassification  MatrixClassification?
+  
+  // Recommendations
+  recommendedAction     RecommendedAction?
+  actionReasoning       String?
+  
+  @@index([analysisId])
+  @@index([recipeId])
+}
+
+// ==========================================
+// ALERTS (Phase 2)
+// ==========================================
+
+enum AlertType {
+  STOCK_LOW
+  STOCK_EXPIRING
+  CMV_HIGH
+  COST_INCREASE
+  MARGIN_NEGATIVE
+  YIELD_LOW
+  INTEGRATION_ERROR
+  ANOMALY_DETECTED
+  GOAL_ACHIEVED
+  GOAL_NEAR
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Alert {
+  id              String        @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  type            AlertType
+  severity        AlertSeverity @default(MEDIUM)
+  
+  title           String
+  message         String
+  data            Json?
+  
+  actionUrl       String?
+  
+  isRead          Boolean       @default(false)
+  readAt          DateTime?
+  readById        String?
+  readBy          User?         @relation(fields: [readById], references: [id], onDelete: SetNull)
+  
+  createdAt       DateTime      @default(now())
+  expiresAt       DateTime?
+  
+  @@index([restaurantId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+  PUSH
+}
+
+model AlertRule {
+  id                    String                @id @default(cuid())
+  restaurantId          String
+  restaurant            Restaurant            @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  type                  AlertType
+  name                  String
+  
+  // Conditions (JSON structure depends on type)
+  conditions            Json
+  
+  // Notification settings
+  notificationChannels  NotificationChannel[]
+  
+  isActive              Boolean               @default(true)
+  
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  
+  @@index([restaurantId])
+  @@index([type])
+}
+
+// ==========================================
+// AI PURCHASE AGENT (Phase 3)
+// ==========================================
+
+enum SuggestionPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model PurchaseSuggestion {
+  id                    String              @id @default(cuid())
+  restaurantId          String
+  restaurant            Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  productId             String
+  product               Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Current state
+  currentStock          Float
+  avgDailyConsumption   Float
+  
+  // Suggestion
+  suggestedQuantity     Float
+  suggestedUnit         String
+  reorderPoint          Float
+  
+  // Timing
+  leadTimeDays          Int
+  estimatedRunoutDate   DateTime?
+  
+  // Priority
+  priority              SuggestionPriority  @default(MEDIUM)
+  
+  // AI reasoning
+  reasoning             String?
+  confidence            Float               @default(0.5)
+  
+  // Status
+  isAccepted            Boolean?
+  acceptedAt            DateTime?
+  acceptedQuantity      Float?
+  
+  generatedAt           DateTime            @default(now())
+  expiresAt             DateTime?
+  
+  @@index([restaurantId])
+  @@index([productId])
+  @@index([priority])
+}
+
+enum AnomalyType {
+  CONSUMPTION_HIGH
+  CONSUMPTION_LOW
+  WASTE_HIGH
+  PATTERN_UNUSUAL
+  STOCK_DISCREPANCY
+}
+
+model ConsumptionAnomaly {
+  id              String        @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  anomalyType     AnomalyType
+  severity        AlertSeverity @default(MEDIUM)
+  
+  expectedValue   Float
+  actualValue     Float
+  deviationPercent Float
+  
+  // AI analysis
+  aiAnalysis      String?
+  suggestedAction String?
+  
+  // Period
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Status
+  isResolved      Boolean       @default(false)
+  resolvedAt      DateTime?
+  resolution      String?
+  
+  detectedAt      DateTime      @default(now())
+  
+  @@index([restaurantId])
+  @@index([productId])
+  @@index([anomalyType])
+}
+
+// ==========================================
+// GOALS & GAMIFICATION (Phase 4)
+// ==========================================
+
+enum GoalType {
+  REVENUE
+  ORDER_COUNT
+  AVG_TICKET
+  CMV_PERCENT
+  ITEMS_SOLD
+  SPECIFIC_PRODUCT
+  WASTE_REDUCTION
+}
+
+enum GoalPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  CUSTOM
+}
+
+model Goal {
+  id              String      @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  // Target
+  userId          String?
+  user            User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId          String?
+  
+  // Goal definition
+  type            GoalType
+  name            String
+  description     String?
+  
+  targetValue     Float
+  currentValue    Float       @default(0)
+  
+  // Period
+  period          GoalPeriod
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Reward
+  rewardType      String?
+  rewardValue     String?
+  rewardPoints    Int         @default(0)
+  
+  // Status
+  isActive        Boolean     @default(true)
+  achievedAt      DateTime?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  @@index([restaurantId])
+  @@index([userId])
+  @@index([periodStart, periodEnd])
+}
+
+enum BadgeCategory {
+  SALES
+  QUALITY
+  CONSISTENCY
+  TEAMWORK
+  MILESTONE
+}
+
+model Achievement {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  badgeName       String
+  badgeCategory   BadgeCategory
+  description     String
+  iconUrl         String?
+  
+  pointsAwarded   Int           @default(0)
+  
+  earnedAt        DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([badgeCategory])
+}
+
+// ==========================================
+// AUDIT LOG
+// ==========================================
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+}
+
+model AuditLog {
+  id              String        @id @default(cuid())
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action          AuditAction
+  entityType      String
+  entityId        String?
+  
+  oldValues       Json?
+  newValues       Json?
+  
+  ipAddress       String?
+  userAgent       String?
+  
+  createdAt       DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

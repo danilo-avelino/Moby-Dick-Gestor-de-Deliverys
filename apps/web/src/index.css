@@ -1,0 +1,227 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary: 42 140 140;
+    --secondary: 46 123 168;
+  }
+
+  body {
+    @apply bg-gray-950 text-gray-100;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(42, 140, 140, 0.3) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  *::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    @apply bg-primary-600/30 rounded-full;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary-600/50;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl p-6;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-950;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-gradient-to-r from-primary-600 to-primary-500 text-white;
+    @apply hover:from-primary-500 hover:to-primary-400 focus:ring-primary-500;
+    @apply shadow-lg shadow-primary-500/25;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gradient-to-r from-secondary-600 to-secondary-500 text-white;
+    @apply hover:from-secondary-500 hover:to-secondary-400 focus:ring-secondary-500;
+    @apply shadow-lg shadow-secondary-500/25;
+  }
+
+  .btn-ghost {
+    @apply btn bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white;
+    @apply focus:ring-white/20;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-500 focus:ring-red-500;
+  }
+
+  .input {
+    @apply w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10;
+    @apply text-white placeholder-gray-500;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500;
+    @apply transition-all duration-200;
+  }
+
+  /* Select dropdown styling for dark mode */
+  select.input {
+    @apply cursor-pointer appearance-none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1.25em 1.25em;
+    padding-right: 2.5rem;
+  }
+
+  select.input option {
+    @apply bg-gray-900 text-white;
+    padding: 0.5rem 1rem;
+  }
+
+  select.input option:checked {
+    @apply bg-primary-600 text-white;
+  }
+
+  select.input option:hover {
+    @apply bg-gray-800;
+  }
+
+  /* Also style regular selects without .input class */
+  select {
+    @apply bg-gray-900 text-white;
+  }
+
+  select option {
+    @apply bg-gray-900 text-white;
+    padding: 0.5rem 1rem;
+  }
+
+  select option:checked {
+    @apply bg-primary-600 text-white;
+  }
+
+  .input-error {
+    @apply border-red-500 focus:ring-red-500/50 focus:border-red-500;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-400 mb-1.5;
+  }
+
+  .card {
+    @apply bg-gray-900/50 border border-white/5 rounded-2xl overflow-hidden;
+    @apply transition-all duration-300;
+  }
+
+  .card:hover {
+    @apply border-white/10 shadow-xl shadow-black/20;
+  }
+
+  .stat-card {
+    @apply glass-card relative overflow-hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-br from-primary-500/10 to-transparent opacity-0 transition-opacity;
+  }
+
+  .stat-card:hover::before {
+    @apply opacity-100;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400;
+    @apply hover:bg-white/5 hover:text-white transition-all duration-200;
+  }
+
+  .sidebar-link.active {
+    @apply bg-primary-500/10 text-primary-400 border-l-2 border-primary-500;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-green-500/20 text-green-400;
+  }
+
+  .badge-warning {
+    @apply badge bg-yellow-500/20 text-yellow-400;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-500/20 text-red-400;
+  }
+
+  .badge-info {
+    @apply badge bg-blue-500/20 text-blue-400;
+  }
+
+  .badge-purple {
+    @apply badge bg-primary-500/20 text-primary-400;
+  }
+
+  .table-container {
+    @apply overflow-x-auto rounded-xl border border-white/5;
+  }
+
+  .table {
+    @apply w-full text-left;
+  }
+
+  .table th {
+    @apply px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-400 bg-gray-900/50;
+  }
+
+  .table td {
+    @apply px-4 py-4 text-sm text-gray-300 border-t border-white/5;
+  }
+
+  .table tr:hover td {
+    @apply bg-white/[0.02];
+  }
+
+  .progress-bar {
+    @apply h-2 bg-gray-800 rounded-full overflow-hidden;
+  }
+
+  .progress-bar-fill {
+    @apply h-full rounded-full transition-all duration-500;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary-400 to-secondary-400;
+  }
+
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 10px rgba(42, 140, 140, 0.2);
+    }
+
+    to {
+      box-shadow: 0 0 20px rgba(42, 140, 140, 0.4);
+    }
+  }
+}

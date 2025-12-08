@@ -1,0 +1,295 @@
+// Integration Manager - Central service to manage all integrations
+
+import { prisma } from 'database';
+import {
+    BaseIntegrationAdapter,
+    SalesIntegrationAdapter,
+    LogisticsIntegrationAdapter,
+    createAdapter
+} from './base-adapter';
+import {
+    IntegrationConfig,
+    IntegrationType,
+    NormalizedOrder,
+    DeliveryRequest,
+    DeliveryQuote,
+    DeliveryTracking
+} from './types';
+
+// Import adapters to ensure they register themselves
+import './adapters/ifood';
+import './adapters/99food';
+import './adapters/saipos';
+import './adapters/open-delivery';
+import './adapters/foody';
+import './adapters/agilizone';
+
+interface ManagedIntegration {
+    id: string;
+    platform: string;
+    type: IntegrationType;
+    adapter: BaseIntegrationAdapter;
+    lastSyncAt?: Date;
+    syncInterval: number; // minutes
+}
+
+export class IntegrationManager {
+    private integrations: Map<string, ManagedIntegration> = new Map();
+    private syncIntervals: Map<string, NodeJS.Timeout> = new Map();
+
+    constructor() {
+        // Don't auto-load - call init() after server startup
+    }
+
+    // Initialize the manager - call after server is ready
+    async init(): Promise<void> {
+        await this.loadIntegrations();
+    }
+
+    // Load all active integrations from database
+    async loadIntegrations(): Promise<void> {
+        try {
+            const dbIntegrations = await prisma.integration.findMany({
+                where: { status: 'ACTIVE' },
+            });
+
+            for (const integration of dbIntegrations) {
+                await this.addIntegration({
+                    id: integration.id,
+                    platform: integration.platform,
+                    type: this.getIntegrationType(integration.platform),
+                    credentials: integration.credentials as any,
+                    syncInterval: integration.syncFrequencyMinutes,
+                });
+            }
+
+            console.log(`Loaded ${this.integrations.size} active integrations`);
+        } catch (error) {
+            console.error('Failed to load integrations:', error);
+        }
+    }
+
+    // Add a new integration
+    async addIntegration(config: {
+        id: string;
+        platform: string;
+        type: IntegrationType;
+        credentials: any;
+        syncInterval: number;
+    }): Promise<boolean> {
+        try {
+            const adapterConfig: IntegrationConfig = {
+                platform: config.platform,
+                type: config.type,
+                credentials: config.credentials,
+                sandboxMode: process.env.NODE_ENV !== 'production',
+            };
+
+            const adapter = createAdapter(adapterConfig);
+            await adapter.authenticate();
+
+            const managed: ManagedIntegration = {
+                id: config.id,
+                platform: config.platform,
+                type: config.type,
+                adapter,
+                syncInterval: config.syncInterval,
+            };
+
+            this.integrations.set(config.id, managed);
+
+            // Start sync polling for sales integrations
+            if (config.type === 'sales') {
+                this.startSyncPolling(config.id);
+            }
+
+            return true;
+        } catch (error) {
+            console.error(`Failed to add integration ${config.platform}:`, error);
+            return false;
+        }
+    }
+
+    // Remove an integration
+    removeIntegration(integrationId: string): boolean {
+        this.stopSyncPolling(integrationId);
+        return this.integrations.delete(integrationId);
+    }
+
+    // Get integration by ID
+    getIntegration(integrationId: string): ManagedIntegration | undefined {
+        return this.integrations.get(integrationId);
+    }
+
+    // Get all integrations for a restaurant
+    getIntegrationsByType(type: IntegrationType): ManagedIntegration[] {
+        return Array.from(this.integrations.values())
+            .filter(i => i.type === type);
+    }
+
+    // --- Sales Operations ---
+
+    async fetchOrders(integrationId: string, since?: Date): Promise<NormalizedOrder[]> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration || integration.type !== 'sales') {
+            throw new Error('Invalid sales integration');
+        }
+
+        const adapter = integration.adapter as SalesIntegrationAdapter;
+        return adapter.fetchOrders(since);
+    }
+
+    async confirmOrder(integrationId: string, orderId: string): Promise<void> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) throw new Error('Integration not found');
+
+        const adapter = integration.adapter as SalesIntegrationAdapter;
+        await adapter.confirmOrder(orderId);
+    }
+
+    async rejectOrder(integrationId: string, orderId: string, reason?: string): Promise<void> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) throw new Error('Integration not found');
+
+        const adapter = integration.adapter as SalesIntegrationAdapter;
+        await adapter.rejectOrder(orderId, reason);
+    }
+
+    async markOrderReady(integrationId: string, orderId: string): Promise<void> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) throw new Error('Integration not found');
+
+        const adapter = integration.adapter as SalesIntegrationAdapter;
+        await adapter.markOrderReady(orderId);
+    }
+
+    async dispatchOrder(integrationId: string, orderId: string): Promise<void> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) throw new Error('Integration not found');
+
+        const adapter = integration.adapter as SalesIntegrationAdapter;
+        await adapter.dispatchOrder(orderId);
+    }
+
+    // --- Logistics Operations ---
+
+    async getDeliveryQuote(integrationId: string, request: DeliveryRequest): Promise<DeliveryQuote> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration || integration.type !== 'logistics') {
+            throw new Error('Invalid logistics integration');
+        }
+
+        const adapter = integration.adapter as LogisticsIntegrationAdapter;
+        return adapter.getDeliveryQuote(request);
+    }
+
+    async requestDelivery(integrationId: string, request: DeliveryRequest): Promise<string> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration || integration.type !== 'logistics') {
+            throw new Error('Invalid logistics integration');
+        }
+
+        const adapter = integration.adapter as LogisticsIntegrationAdapter;
+        return adapter.requestDelivery(request);
+    }
+
+    async cancelDelivery(integrationId: string, deliveryId: string, reason?: string): Promise<void> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration || integration.type !== 'logistics') {
+            throw new Error('Invalid logistics integration');
+        }
+
+        const adapter = integration.adapter as LogisticsIntegrationAdapter;
+        await adapter.cancelDelivery(deliveryId, reason);
+    }
+
+    async getDeliveryTracking(integrationId: string, deliveryId: string): Promise<DeliveryTracking> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration || integration.type !== 'logistics') {
+            throw new Error('Invalid logistics integration');
+        }
+
+        const adapter = integration.adapter as LogisticsIntegrationAdapter;
+        return adapter.getDeliveryTracking(deliveryId);
+    }
+
+    // --- Sync Management ---
+
+    private startSyncPolling(integrationId: string): void {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) return;
+
+        const interval = setInterval(async () => {
+            try {
+                await this.syncOrders(integrationId);
+            } catch (error) {
+                console.error(`Sync failed for ${integrationId}:`, error);
+            }
+        }, integration.syncInterval * 60 * 1000);
+
+        this.syncIntervals.set(integrationId, interval);
+    }
+
+    private stopSyncPolling(integrationId: string): void {
+        const interval = this.syncIntervals.get(integrationId);
+        if (interval) {
+            clearInterval(interval);
+            this.syncIntervals.delete(integrationId);
+        }
+    }
+
+    async syncOrders(integrationId: string): Promise<number> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) return 0;
+
+        const since = integration.lastSyncAt || new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const orders = await this.fetchOrders(integrationId, since);
+
+        // Update last sync time
+        integration.lastSyncAt = new Date();
+
+        // Log sync
+        await prisma.syncLog.create({
+            data: {
+                integrationId,
+                type: 'FULL',
+                status: 'SUCCESS',
+                itemsProcessed: orders.length,
+                startedAt: since,
+                completedAt: new Date(),
+            },
+        });
+
+        console.log(`Synced ${orders.length} orders from ${integration.platform}`);
+        return orders.length;
+    }
+
+    async manualSync(integrationId: string): Promise<number> {
+        return this.syncOrders(integrationId);
+    }
+
+    // --- Helpers ---
+
+    private getIntegrationType(platform: string): IntegrationType {
+        const logisticsplatforms = ['foody', 'agilizone', 'saipos_logistics'];
+        return logisticsplatforms.includes(platform.toLowerCase()) ? 'logistics' : 'sales';
+    }
+
+    // Test connection for an integration
+    async testConnection(integrationId: string): Promise<boolean> {
+        const integration = this.integrations.get(integrationId);
+        if (!integration) return false;
+        return integration.adapter.testConnection();
+    }
+
+    // Shutdown - clean up all intervals
+    shutdown(): void {
+        for (const [id] of this.syncIntervals) {
+            this.stopSyncPolling(id);
+        }
+        this.integrations.clear();
+    }
+}
+
+// Singleton instance
+export const integrationManager = new IntegrationManager();
