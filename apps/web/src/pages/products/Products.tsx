@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { formatCurrency, formatNumber } from '../../lib/utils';
@@ -7,228 +7,217 @@ import {
     Calendar, Tag, Filter, TrendingDown, Archive, ShoppingCart, MoreVertical,
     Settings, Users, Layers, X
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
+// ... imports
+import ProductDetailsModal from '../stock/components/ProductDetailsModal';
+import StockImportModal from '../stock/components/StockImportModal';
+
 export default function Products() {
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState<'all' | 'active' | 'low' | 'cmv' | 'perishable'>('all');
-    const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+    const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const [showCategoriesModal, setShowCategoriesModal] = useState(false);
     const [showSuppliersModal, setShowSuppliersModal] = useState(false);
-    const [newCategoryName, setNewCategoryName] = useState('');
-    const [newSupplierName, setNewSupplierName] = useState('');
-    const [newSupplierContact, setNewSupplierContact] = useState('');
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [search, setSearch] = useState('');
+    const [categoryId, setCategoryId] = useState('all');
+    const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+    const [showDetailsModal, setShowDetailsModal] = useState(false);
+    const [showCalibrationWarning, setShowCalibrationWarning] = useState(false);
+    const [dismissedCalibrationWarning, setDismissedCalibrationWarning] = useState(false);
 
-    const queryClient = useQueryClient();
+    // Check if system is in calibration period (first 90 days)
+    useEffect(() => {
+        const CALIBRATION_DAYS = 90;
+        const STORAGE_KEY = 'moby_first_visit_date';
+        const DISMISSED_KEY = 'moby_calibration_warning_dismissed';
 
-    const { data, isLoading } = useQuery({
-        queryKey: ['products', search, filter],
+        // Check if already dismissed
+        const dismissed = localStorage.getItem(DISMISSED_KEY);
+        if (dismissed) {
+            setDismissedCalibrationWarning(true);
+            return;
+        }
+
+        // Get or set first visit date
+        let firstVisit = localStorage.getItem(STORAGE_KEY);
+        if (!firstVisit) {
+            firstVisit = new Date().toISOString();
+            localStorage.setItem(STORAGE_KEY, firstVisit);
+        }
+
+        const firstVisitDate = new Date(firstVisit);
+        const now = new Date();
+        const daysSinceFirstVisit = Math.floor((now.getTime() - firstVisitDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        setShowCalibrationWarning(daysSinceFirstVisit < CALIBRATION_DAYS);
+    }, []);
+
+    const handleDismissCalibrationWarning = () => {
+        localStorage.setItem('moby_calibration_warning_dismissed', 'true');
+        setDismissedCalibrationWarning(true);
+    };
+
+    // Queries
+    const { data: productsData, isLoading: isLoadingProducts, refetch: refetchProducts, error: productsError, isError: isProductsError } = useQuery({
+        queryKey: ['products', search, categoryId],
         queryFn: () => api.get('/api/products', {
             params: {
-                search: search || undefined,
-                isActive: filter === 'active' ? 'true' : undefined,
-                lowStock: filter === 'low' ? 'true' : undefined,
-            },
-        }).then((r) => r.data.data),
+                search,
+                categoryId: categoryId !== 'all' ? categoryId : undefined,
+            }
+        }).then(r => r.data),
+        staleTime: 10000, // 10 seconds - data becomes stale quickly
+        refetchOnWindowFocus: true, // Refetch when user comes back to window
+        refetchOnMount: 'always', // Always refetch when component mounts
+        retry: 1, // Don't retry too many times for 403s
     });
 
     const { data: categories } = useQuery({
-        queryKey: ['categories-flat'],
-        queryFn: () => api.get('/api/categories/flat').then((r) => r.data.data),
+        queryKey: ['categories'],
+        queryFn: () => api.get('/api/categories').then(r => r.data.data),
+        staleTime: 60000, // 1 minute - categories change less often
     });
 
     const { data: suppliers } = useQuery({
         queryKey: ['suppliers'],
-        queryFn: () => api.get('/api/suppliers').then((r) => r.data.data),
+        queryFn: () => api.get('/api/suppliers').then(r => r.data.data),
     });
 
+    const [newCategoryName, setNewCategoryName] = useState('');
+    const [newSupplierName, setNewSupplierName] = useState('');
+
+    // Mutations
     const createCategory = useMutation({
         mutationFn: (name: string) => api.post('/api/categories', { name }),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['categories-flat'] });
+            queryClient.invalidateQueries({ queryKey: ['categories'] });
+            toast.success('Categoria criada com sucesso');
             setNewCategoryName('');
-            toast.success('Categoria criada!');
         },
         onError: () => toast.error('Erro ao criar categoria'),
+    });
+
+    const createSupplier = useMutation({
+        mutationFn: (name: string) => api.post('/api/suppliers', { name }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+            toast.success('Fornecedor criado com sucesso');
+            setNewSupplierName('');
+        },
+        onError: () => toast.error('Erro ao criar fornecedor'),
     });
 
     const deleteCategory = useMutation({
         mutationFn: (id: string) => api.delete(`/api/categories/${id}`),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['categories-flat'] });
-            toast.success('Categoria excluída!');
+            queryClient.invalidateQueries({ queryKey: ['categories'] });
+            toast.success('Categoria removida com sucesso');
         },
-        onError: () => toast.error('Erro ao excluir categoria'),
-    });
-
-    const createSupplier = useMutation({
-        mutationFn: (data: { name: string; contactInfo?: string }) => api.post('/api/suppliers', data),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-            setNewSupplierName('');
-            setNewSupplierContact('');
-            toast.success('Fornecedor criado!');
-        },
-        onError: () => toast.error('Erro ao criar fornecedor'),
+        onError: () => toast.error('Erro ao remover categoria'),
     });
 
     const deleteSupplier = useMutation({
         mutationFn: (id: string) => api.delete(`/api/suppliers/${id}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-            toast.success('Fornecedor excluído!');
+            toast.success('Fornecedor removido com sucesso');
         },
-        onError: () => toast.error('Erro ao excluir fornecedor'),
+        onError: () => toast.error('Erro ao remover fornecedor'),
     });
 
-    const products = data?.data || [];
+    const products = productsData?.data?.data || [];
+    const isLoading = isLoadingProducts;
+    const filteredProducts = products;
 
-    const filteredProducts = products.filter((p: any) => {
-        if (filter === 'cmv') return p.countsCMV;
-        if (filter === 'perishable') return p.isPerishable;
-        return true;
-    });
 
-    const stats = {
-        total: products.length,
-        lowStock: products.filter((p: any) => p.currentStock <= p.minStock).length,
-        cmv: products.filter((p: any) => p.countsCMV).length,
-        perishable: products.filter((p: any) => p.isPerishable).length,
-    };
 
     return (
         <div className="space-y-6 animate-fade-in">
-            {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            {/* Header and Stats */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Produtos</h1>
-                    <p className="text-gray-400">Gerencie seus insumos e produtos</p>
+                    <p className="text-gray-400">Gerencie seu catálogo de produtos</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <div className="relative">
-                        <button
-                            onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                            className="btn-ghost"
-                            onBlur={() => setTimeout(() => setShowSettingsMenu(false), 200)}
-                        >
-                            <Settings className="w-5 h-5" /> Configurar
-                        </button>
-                        {showSettingsMenu && (
-                            <div className="absolute right-0 top-full mt-1 w-56 rounded-xl bg-gray-800 border border-white/20 shadow-xl z-50 overflow-hidden">
-                                <button
-                                    onClick={() => { setShowCategoriesModal(true); setShowSettingsMenu(false); }}
-                                    className="w-full px-4 py-3 text-left hover:bg-white/10 flex items-center gap-3 text-white border-b border-white/10"
-                                >
-                                    <Layers className="w-5 h-5 text-primary-400" />
-                                    <div>
-                                        <p className="font-medium">Categorias</p>
-                                        <p className="text-xs text-gray-400">Organize seus produtos</p>
-                                    </div>
-                                </button>
-                                <button
-                                    onClick={() => { setShowSuppliersModal(true); setShowSettingsMenu(false); }}
-                                    className="w-full px-4 py-3 text-left hover:bg-white/10 flex items-center gap-3 text-white"
-                                >
-                                    <Users className="w-5 h-5 text-blue-400" />
-                                    <div>
-                                        <p className="font-medium">Fornecedores</p>
-                                        <p className="text-xs text-gray-400">Gerencie seus fornecedores</p>
-                                    </div>
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        onClick={() => setShowImportModal(true)}
+                        className="btn-ghost text-sm"
+                    >
+                        <Archive className="w-4 h-4 mr-2" />
+                        Importar
+                    </button>
+                    <button
+                        onClick={() => setShowCategoriesModal(true)}
+                        className="btn-ghost text-sm"
+                    >
+                        <Layers className="w-4 h-4 mr-2" />
+                        Categorias
+                    </button>
+                    <button
+                        onClick={() => setShowSuppliersModal(true)}
+                        className="btn-ghost text-sm"
+                    >
+                        <Users className="w-4 h-4 mr-2" />
+                        Fornecedores
+                    </button>
                     <Link to="/products/new" className="btn-primary">
-                        <Plus className="w-5 h-5" /> Novo Produto
+                        <Plus className="w-4 h-4 mr-2" />
+                        Novo Produto
                     </Link>
                 </div>
             </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="stat-card cursor-pointer hover:bg-white/10 transition-all" onClick={() => setFilter('all')}>
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary-500/20">
-                            <Package className="w-5 h-5 text-primary-400" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-gray-400">Total</p>
-                            <p className="text-xl font-bold text-white">{stats.total}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="stat-card cursor-pointer hover:bg-white/10 transition-all" onClick={() => setFilter('low')}>
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-yellow-500/20">
-                            <TrendingDown className="w-5 h-5 text-yellow-400" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-gray-400">Estoque Baixo</p>
-                            <p className="text-xl font-bold text-yellow-400">{stats.lowStock}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="stat-card cursor-pointer hover:bg-white/10 transition-all" onClick={() => setFilter('cmv')}>
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-green-500/20">
-                            <DollarSign className="w-5 h-5 text-green-400" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-gray-400">Compõem CMV</p>
-                            <p className="text-xl font-bold text-green-400">{stats.cmv}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="stat-card cursor-pointer hover:bg-white/10 transition-all" onClick={() => setFilter('perishable')}>
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-red-500/20">
-                            <Calendar className="w-5 h-5 text-red-400" />
-                        </div>
-                        <div>
-                            <p className="text-sm text-gray-400">Perecíveis</p>
-                            <p className="text-xl font-bold text-red-400">{stats.perishable}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Filters and Search */}
-            <div className="flex flex-col sm:flex-row gap-4">
+            {/* Filters */}
+            <div className="flex flex-col md:flex-row gap-4">
                 <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <input
                         type="text"
-                        placeholder="Buscar por nome, SKU ou código de barras..."
+                        placeholder="Buscar produtos..."
                         className="input pl-10"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                <div className="flex gap-2">
-                    {[
-                        { id: 'all', label: 'Todos', icon: Package },
-                        { id: 'low', label: 'Baixo', icon: TrendingDown },
-                        { id: 'cmv', label: 'CMV', icon: DollarSign },
-                        { id: 'perishable', label: 'Perecível', icon: Calendar },
-                    ].map((f) => (
-                        <button
-                            key={f.id}
-                            onClick={() => setFilter(f.id as any)}
-                            className={`btn text-sm ${filter === f.id ? 'btn-primary' : 'btn-ghost'}`}
-                        >
-                            <f.icon className="w-4 h-4" />
-                            {f.label}
-                        </button>
+                <select
+                    className="input md:w-48"
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                >
+                    <option value="all">Todas as Categorias</option>
+                    {(categories || []).map((cat: any) => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
                     ))}
-                </div>
+                </select>
             </div>
+
+            {/* Calibration Warning Banner */}
+            {showCalibrationWarning && !dismissedCalibrationWarning && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                        <p className="text-amber-200 font-medium text-sm">Período de Calibração</p>
+                        <p className="text-amber-200/80 text-sm mt-1">
+                            O <strong>Ponto de Reposição</strong> e a <strong>Autonomia</strong> dos produtos são calculados com base em informações de consumo dos últimos 60 dias.
+                            Antes desse período de uso, as informações podem não ser precisas.
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleDismissCalibrationWarning}
+                        className="text-amber-400 hover:text-amber-300 p-1"
+                        title="Dispensar aviso"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
 
             {/* Products Grid */}
             {isLoading ? (
+                // ... loading state
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[...Array(6)].map((_, i) => (
                         <div key={i} className="glass-card animate-pulse">
@@ -238,33 +227,33 @@ export default function Products() {
                     ))}
                 </div>
             ) : filteredProducts.length === 0 ? (
+                // ... empty state
                 <div className="glass-card text-center py-12">
-                    <Package className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                    <p className="text-gray-400 mb-2">Nenhum produto encontrado</p>
-                    {filter !== 'all' && (
-                        <button onClick={() => setFilter('all')} className="text-primary-400 text-sm">
-                            Limpar filtros
-                        </button>
-                    )}
-                    {filter === 'all' && (
-                        <Link to="/products/new" className="btn-primary mt-4">
-                            <Plus className="w-5 h-5" /> Criar Primeiro Produto
-                        </Link>
-                    )}
+                    {/* ... */}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredProducts.map((product: any) => (
-                        <div key={product.id} className="card p-5 group hover:border-primary-500/30 transition-all">
+                        <div
+                            key={product.id}
+                            className="card p-5 group hover:border-primary-500/30 transition-all cursor-pointer relative"
+                            onClick={(e) => {
+                                // Prevent opening when clicking specific action buttons
+                                if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('button')) return;
+                                setSelectedProductId(product.id);
+                                setShowDetailsModal(true);
+                            }}
+                        >
                             <div className="flex items-start justify-between mb-3">
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
                                         <h3 className="font-semibold text-white truncate">{product.name}</h3>
-                                        {product.currentStock <= product.minStock && (
+                                        {product.currentStock <= (product.manualReorderPoint ?? product.reorderPoint ?? 0) && (
                                             <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
                                         )}
                                     </div>
                                     <div className="flex items-center gap-2 flex-wrap">
+                                        {/* ... badges ... */}
                                         {product.sku && (
                                             <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
                                                 {product.sku}
@@ -284,14 +273,18 @@ export default function Products() {
                                         )}
                                     </div>
                                 </div>
-                                <Link
-                                    to={`/products/${product.id}`}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/products/${product.id}`);
+                                    }}
                                     className="p-2 hover:bg-white/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                                 >
                                     <Edit className="w-4 h-4 text-gray-400" />
-                                </Link>
+                                </button>
                             </div>
 
+                            {/* ... Category, Stats, Progress Bar ... */}
                             {product.category && (
                                 <div className="flex items-center gap-1 text-xs text-gray-400 mb-3">
                                     <Tag className="w-3 h-3" />
@@ -299,52 +292,68 @@ export default function Products() {
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div className="grid grid-cols-3 gap-2 mb-3">
                                 <div className="p-2 rounded-lg bg-white/5">
-                                    <p className="text-xs text-gray-500 mb-0.5">Estoque Atual</p>
-                                    <p className={`font-semibold ${product.currentStock <= product.minStock ? 'text-yellow-400' : 'text-white'}`}>
+                                    <p className="text-xs text-gray-500 mb-0.5">Estoque</p>
+                                    <p className={`font-semibold text-sm ${product.currentStock <= (product.manualReorderPoint ?? product.reorderPoint ?? 0) ? 'text-yellow-400' : 'text-white'}`}>
                                         {formatNumber(product.currentStock)} {product.baseUnit}
                                     </p>
                                 </div>
                                 <div className="p-2 rounded-lg bg-white/5">
-                                    <p className="text-xs text-gray-500 mb-0.5">Custo Médio</p>
-                                    <p className="font-semibold text-white">{formatCurrency(product.avgCost)}/{product.baseUnit}</p>
+                                    <p className="text-xs text-gray-500 mb-0.5">Custo</p>
+                                    <p className="font-semibold text-sm text-white">{formatCurrency(product.avgCost)}</p>
+                                </div>
+                                <div className="p-2 rounded-lg bg-white/5">
+                                    <p className="text-xs text-gray-500 mb-0.5">Autonomia</p>
+                                    {product.autonomyDays !== null ? (
+                                        <p className={`font-semibold text-sm ${product.autonomyDays <= 3 ? 'text-red-400' :
+                                            product.autonomyDays <= 7 ? 'text-yellow-400' :
+                                                'text-green-400'
+                                            }`}>
+                                            {product.autonomyDays} dias
+                                        </p>
+                                    ) : (
+                                        <p className="font-semibold text-sm text-gray-500">--</p>
+                                    )}
                                 </div>
                             </div>
 
-                            <div className="mb-2">
-                                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                                    <span>Min: {product.minStock}</span>
-                                    {product.maxStock && <span>Max: {product.maxStock}</span>}
-                                </div>
-                                <div className="progress-bar h-2">
-                                    <div
-                                        className={`progress-bar-fill h-2 ${product.currentStock <= product.minStock
-                                                ? 'bg-yellow-500'
-                                                : product.currentStock >= (product.maxStock || product.minStock * 3)
-                                                    ? 'bg-blue-500'
+                            {(() => {
+                                const reorderPt = product.manualReorderPoint ?? product.reorderPoint ?? 0;
+                                const stockPercent = reorderPt > 0
+                                    ? Math.min((product.currentStock / reorderPt) * 100, 100)
+                                    : 100; // If no reorder point set, show full bar
+                                const isLowStock = product.currentStock <= reorderPt && reorderPt > 0;
+
+                                return (
+                                    <div className="mb-2">
+                                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                            <span>Estoque: {product.currentStock} / {reorderPt} {product.baseUnit}</span>
+                                            <span>{Math.round(stockPercent)}%</span>
+                                        </div>
+                                        <div className="progress-bar h-2">
+                                            <div
+                                                className={`progress-bar-fill h-2 ${isLowStock
+                                                    ? 'bg-yellow-500'
                                                     : 'bg-primary-500'
-                                            }`}
-                                        style={{
-                                            width: `${Math.min(
-                                                (product.currentStock / (product.maxStock || product.minStock * 2)) * 100,
-                                                100
-                                            )}%`
-                                        }}
-                                    />
-                                </div>
-                            </div>
+                                                    }`}
+                                                style={{ width: `${stockPercent}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             <div className="pt-3 border-t border-white/10 flex gap-2">
                                 <Link
                                     to={`/stock/entry?productId=${product.id}`}
-                                    className="btn-ghost text-xs flex-1"
+                                    className="btn-ghost text-xs flex-1 z-10"
                                 >
                                     <ShoppingCart className="w-3 h-3" /> Entrada
                                 </Link>
                                 <Link
                                     to={`/products/${product.id}`}
-                                    className="btn-ghost text-xs flex-1"
+                                    className="btn-ghost text-xs flex-1 z-10"
                                 >
                                     <Edit className="w-3 h-3" /> Editar
                                 </Link>
@@ -354,10 +363,13 @@ export default function Products() {
                 </div>
             )}
 
+            {/* ... Modals (Category, Supplier) ... */}
             {/* Categories Modal */}
             {showCategoriesModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    {/* ... existing category modal content ... */}
                     <div className="glass-card w-full max-w-lg max-h-[80vh] overflow-y-auto m-4">
+                        {/* ... */}
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                                 <Layers className="w-5 h-5 text-primary-400" /> Categorias
@@ -371,22 +383,22 @@ export default function Products() {
                         <div className="flex gap-2 mb-4">
                             <input
                                 type="text"
-                                placeholder="Nome da categoria..."
+                                placeholder="Nova Categoria..."
                                 className="input flex-1"
                                 value={newCategoryName}
                                 onChange={(e) => setNewCategoryName(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && newCategoryName && createCategory.mutate(newCategoryName)}
+                                onKeyDown={(e) => e.key === 'Enter' && newCategoryName && createCategory.mutate(newCategoryName)}
                             />
                             <button
                                 onClick={() => newCategoryName && createCategory.mutate(newCategoryName)}
-                                className="btn-primary"
                                 disabled={!newCategoryName || createCategory.isPending}
+                                className="btn-primary whitespace-nowrap"
                             >
-                                <Plus className="w-4 h-4" /> Adicionar
+                                <Plus className="w-4 h-4 mr-2" />
+                                Adicionar
                             </button>
                         </div>
 
-                        {/* Categories List */}
                         <div className="space-y-2">
                             {(categories || []).map((cat: any) => (
                                 <div key={cat.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
@@ -403,9 +415,6 @@ export default function Products() {
                                     </button>
                                 </div>
                             ))}
-                            {(!categories || categories.length === 0) && (
-                                <p className="text-center text-gray-400 py-8">Nenhuma categoria criada</p>
-                            )}
                         </div>
                     </div>
                 </div>
@@ -414,7 +423,9 @@ export default function Products() {
             {/* Suppliers Modal */}
             {showSuppliersModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    {/* ... existing supplier modal content ... */}
                     <div className="glass-card w-full max-w-lg max-h-[80vh] overflow-y-auto m-4">
+                        {/* ... */}
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                                 <Users className="w-5 h-5 text-blue-400" /> Fornecedores
@@ -425,34 +436,25 @@ export default function Products() {
                         </div>
 
                         {/* Add Supplier Form */}
-                        <div className="space-y-2 mb-4">
+                        <div className="flex gap-2 mb-4">
                             <input
                                 type="text"
-                                placeholder="Nome do fornecedor..."
-                                className="input w-full"
+                                placeholder="Novo Fornecedor..."
+                                className="input flex-1"
                                 value={newSupplierName}
                                 onChange={(e) => setNewSupplierName(e.target.value)}
-                            />
-                            <input
-                                type="text"
-                                placeholder="Contato (opcional)..."
-                                className="input w-full"
-                                value={newSupplierContact}
-                                onChange={(e) => setNewSupplierContact(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && newSupplierName && createSupplier.mutate(newSupplierName)}
                             />
                             <button
-                                onClick={() => newSupplierName && createSupplier.mutate({
-                                    name: newSupplierName,
-                                    contactInfo: newSupplierContact || undefined
-                                })}
-                                className="btn-primary w-full"
+                                onClick={() => newSupplierName && createSupplier.mutate(newSupplierName)}
                                 disabled={!newSupplierName || createSupplier.isPending}
+                                className="btn-primary whitespace-nowrap"
                             >
-                                <Plus className="w-4 h-4" /> Adicionar Fornecedor
+                                <Plus className="w-4 h-4 mr-2" />
+                                Adicionar
                             </button>
                         </div>
 
-                        {/* Suppliers List */}
                         <div className="space-y-2">
                             {(suppliers || []).map((sup: any) => (
                                 <div key={sup.id} className="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all">
@@ -471,13 +473,23 @@ export default function Products() {
                                     </button>
                                 </div>
                             ))}
-                            {(!suppliers || suppliers.length === 0) && (
-                                <p className="text-center text-gray-400 py-8">Nenhum fornecedor cadastrado</p>
-                            )}
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* New Product Details Modal */}
+            <ProductDetailsModal
+                isOpen={showDetailsModal}
+                onClose={() => setShowDetailsModal(false)}
+                productId={selectedProductId}
+            />
+
+            {/* Stock Import Modal */}
+            <StockImportModal
+                isOpen={showImportModal}
+                onClose={() => setShowImportModal(false)}
+            />
         </div>
     );
 }

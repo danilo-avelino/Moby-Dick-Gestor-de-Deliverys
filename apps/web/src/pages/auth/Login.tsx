@@ -20,7 +20,7 @@ export default function Login() {
     const onSubmit = async (data: LoginForm) => {
         setError('');
         try {
-            await login(data.email, data.password);
+            await login(data.email.toLowerCase().trim(), data.password);
             toast.success('Login realizado com sucesso!');
             navigate('/');
         } catch (err: any) {
@@ -102,20 +102,11 @@ export default function Login() {
                         </button>
                     </form>
 
-                    <p className="mt-6 text-center text-gray-400 text-sm">
-                        Não tem uma conta?{' '}
-                        <Link to="/register" className="text-primary-400 hover:text-primary-300">
-                            Cadastre-se grátis
-                        </Link>
-                    </p>
+
                 </div>
 
                 {/* Demo credentials */}
-                <div className="mt-6 p-4 rounded-xl bg-white/5 border border-white/10">
-                    <p className="text-sm text-gray-400 mb-2">Credenciais de teste:</p>
-                    <p className="text-sm font-mono text-gray-300">admin@burgerhouse.com.br</p>
-                    <p className="text-sm font-mono text-gray-300">123456</p>
-                </div>
+
             </div>
         </div>
     );

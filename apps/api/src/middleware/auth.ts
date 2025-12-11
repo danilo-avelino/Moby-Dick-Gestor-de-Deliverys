@@ -78,6 +78,12 @@ export async function requireRestaurant(request: FastifyRequest, reply: FastifyR
     await authenticate(request, reply);
 
     if (!request.user?.restaurantId) {
+        // Allow Global users (DIRETOR, SUPER_ADMIN) to bypass checks
+        const allowedGlobalRoles = ['SUPER_ADMIN', 'DIRETOR', 'ADMIN'];
+        if (request.user?.role && allowedGlobalRoles.includes(request.user.role)) {
+            return;
+        }
+
         throw errors.forbidden('Restaurant context required');
     }
 }

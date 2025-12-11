@@ -14,6 +14,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const today = new Date();
+        today.setDate(today.getDate() - 1); // User wants "Today" to be "Yesterday" (completed day)
         today.setHours(0, 0, 0, 0);
 
         const yesterday = new Date(today);
@@ -92,7 +93,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         FROM "Product"
         WHERE "restaurantId" = ${request.user!.restaurantId}
           AND "isActive" = true
-          AND "currentStock" <= "minStock"
+          AND "currentStock" <= "reorderPoint"
       `.then((r) => Number(r[0]?.count || 0)),
             prisma.stockBatch.count({
                 where: {

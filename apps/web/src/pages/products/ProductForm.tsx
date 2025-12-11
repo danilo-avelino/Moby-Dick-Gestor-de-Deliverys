@@ -1,8 +1,9 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { api } from '../../lib/api';
-import { ArrowLeft, Save, Loader2, Calendar, DollarSign, Package } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Calendar, DollarSign, Package, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ProductForm() {
@@ -27,12 +28,30 @@ export default function ProductForm() {
         queryFn: () => api.get('/api/suppliers').then((r) => r.data.data),
     });
 
-    const { register, handleSubmit, watch, formState: { errors } } = useForm({
+    const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({
         defaultValues: product || { countsCMV: true }, // CMV true by default
     });
 
     const countsCMV = watch('countsCMV', product?.countsCMV ?? true);
     const isPerishable = watch('isPerishable', product?.isPerishable ?? false);
+
+    const deleteMutation = useMutation({
+        mutationFn: () => api.delete(`/api/products/${id}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['products'] });
+            toast.success('Produto excluído com sucesso!');
+            navigate('/products');
+        },
+        onError: (err: any) => {
+            toast.error(err.response?.data?.error?.message || 'Erro ao excluir');
+        },
+    });
+
+    const handleDelete = () => {
+        if (window.confirm('Tem certeza que deseja excluir este produto? Esta ação não pode ser desfeita.')) {
+            deleteMutation.mutate();
+        }
+    };
 
     const mutation = useMutation({
         mutationFn: (data: any) => isEdit
@@ -47,6 +66,13 @@ export default function ProductForm() {
             toast.error(err.response?.data?.error?.message || 'Erro ao salvar');
         },
     });
+
+    // Update form values when product data loads
+    useEffect(() => {
+        if (product) {
+            reset(product);
+        }
+    }, [product, reset]);
 
     if (isEdit && loadingProduct) {
         return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
@@ -144,30 +170,33 @@ export default function ProductForm() {
                         </div>
 
                         <div>
-                            <label className="label">Estoque Mínimo</label>
+                            <label className="label">Ponto de Reposição (Calculado)</label>
                             <input
                                 type="number"
                                 step="0.01"
-                                {...register('minStock', { valueAsNumber: true })}
-                                className="input"
-                                placeholder="10"
-                                defaultValue={product?.minStock || 0}
+                                {...register('reorderPoint', { valueAsNumber: true })}
+                                className="input bg-gray-700/50 cursor-not-allowed"
+                                placeholder="Auto"
+                                defaultValue={product?.reorderPoint || 0}
+                                readOnly
                             />
-                            <p className="text-xs text-gray-500 mt-1">Alerta quando abaixo</p>
+                            <p className="text-xs text-gray-500 mt-1">Calculado automaticamente</p>
                         </div>
 
                         <div>
-                            <label className="label">Estoque Máximo</label>
+                            <label className="label">Ponto de Reposição (Manual)</label>
                             <input
                                 type="number"
                                 step="0.01"
-                                {...register('maxStock', { valueAsNumber: true })}
+                                {...register('manualReorderPoint', { valueAsNumber: true })}
                                 className="input"
-                                placeholder="100"
-                                defaultValue={product?.maxStock}
+                                placeholder="Opcional"
+                                defaultValue={product?.manualReorderPoint}
                             />
-                            <p className="text-xs text-gray-500 mt-1">Estoque ideal</p>
+                            <p className="text-xs text-gray-500 mt-1">Sobrescreve o automático</p>
                         </div>
+
+
 
                         <div>
                             <label className="label">Lead Time (dias)</label>
@@ -206,8 +235,8 @@ export default function ProductForm() {
                     <div className="space-y-4">
                         {/* CMV Toggle - DESTAQUE */}
                         <div className={`p-4 rounded-xl border-2 transition-all ${countsCMV
-                                ? 'bg-green-500/10 border-green-500/30'
-                                : 'bg-gray-800/50 border-gray-700/30'
+                            ? 'bg-green-500/10 border-green-500/30'
+                            : 'bg-gray-800/50 border-gray-700/30'
                             }`}>
                             <div className="flex items-start gap-3">
                                 <input
@@ -241,8 +270,8 @@ export default function ProductForm() {
                         {/* Other Toggles */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className={`p-3 rounded-xl border transition-all ${isPerishable
-                                    ? 'bg-yellow-500/10 border-yellow-500/30'
-                                    : 'bg-white/5 border-white/10'
+                                ? 'bg-yellow-500/10 border-yellow-500/30'
+                                : 'bg-white/5 border-white/10'
                                 }`}>
                                 <div className="flex items-center gap-3">
                                     <input
@@ -294,6 +323,17 @@ export default function ProductForm() {
 
                 {/* Actions */}
                 <div className="flex justify-end gap-3 pt-4">
+                    {isEdit && (
+                        <button
+                            type="button"
+                            onClick={handleDelete}
+                            className="btn-ghost text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                            disabled={deleteMutation.isPending}
+                        >
+                            {deleteMutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5 mr-2" />}
+                            {!deleteMutation.isPending && 'Deletar Produto'}
+                        </button>
+                    )}
                     <button type="button" onClick={() => navigate(-1)} className="btn-ghost">Cancelar</button>
                     <button type="submit" disabled={mutation.isPending} className="btn-primary">
                         {mutation.isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}

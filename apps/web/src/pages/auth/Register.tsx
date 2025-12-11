@@ -23,7 +23,10 @@ export default function Register() {
     const onSubmit = async (data: RegisterForm) => {
         setError('');
         try {
-            await registerUser(data);
+            await registerUser({
+                ...data,
+                email: data.email.toLowerCase().trim()
+            });
             toast.success('Conta criada com sucesso!');
             navigate('/');
         } catch (err: any) {

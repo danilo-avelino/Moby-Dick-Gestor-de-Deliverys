@@ -11,6 +11,7 @@
         "clean": "rimraf dist .turbo"
     },
     "dependencies": {
+        "@headlessui/react": "^2.2.9",
         "@tanstack/react-query": "^5.13.4",
         "axios": "^1.6.2",
         "clsx": "^2.0.0",

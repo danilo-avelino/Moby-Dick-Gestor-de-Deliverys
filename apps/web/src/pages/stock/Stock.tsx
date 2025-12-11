@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import StockRequisitionModal from './components/StockRequisitionModal';
+import StockImportModal from './components/StockImportModal';
 import { api } from '../../lib/api';
 import { formatCurrency, formatNumber, formatDate } from '../../lib/utils';
 import {
     Plus, Package, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
     Clock, AlertTriangle, Calendar, Trash2, ClipboardCheck, RefreshCw,
-    Search, Filter, MoreVertical, Eye, History, Tag, X
+    Search, Filter, MoreVertical, Eye, History, Tag, X, FileOutput, Upload
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -21,6 +23,8 @@ export default function Stock() {
     const [activeTab, setActiveTab] = useState<'overview' | 'movements' | 'waste' | 'expiring' | 'checklist'>('overview');
     const [search, setSearch] = useState('');
     const [showWasteModal, setShowWasteModal] = useState(false);
+    const [showRequisitionModal, setShowRequisitionModal] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
     const [wasteProductType, setWasteProductType] = useState<'raw' | 'portioned' | null>(null);
     const [selectedProduct, setSelectedProduct] = useState('');
     const [wasteQuantity, setWasteQuantity] = useState('');
@@ -28,36 +32,36 @@ export default function Stock() {
 
     const queryClient = useQueryClient();
 
-    const { data: summary, refetch } = useQuery({
+    // Placeholder arrays for waste and expiring data (to be implemented with real queries later)
+    const wasteLog: any[] = [];
+    const expiringProducts: any[] = [];
+
+    const { data: summary, refetch, isError: isSummaryError, error: summaryError } = useQuery({
         queryKey: ['stock-summary'],
         queryFn: () => api.get('/api/stock/summary').then((r) => r.data.data),
+        staleTime: 10000, // 10 seconds
+        refetchOnWindowFocus: true,
+        refetchOnMount: 'always',
+        retry: 1,
     });
 
     const { data: movements } = useQuery({
         queryKey: ['stock-movements'],
         queryFn: () => api.get('/api/stock/movements?limit=20').then((r) => r.data.data),
+        staleTime: 10000, // 10 seconds
+        refetchOnWindowFocus: true,
+        refetchOnMount: 'always',
     });
 
-    // Simulated data for new features
-    const expiringProducts = [
-        { id: 1, name: 'Queijo Mussarela', expiry: '2024-12-10', quantity: 5, unit: 'kg', daysLeft: 2 },
-        { id: 2, name: 'Presunto', expiry: '2024-12-12', quantity: 3, unit: 'kg', daysLeft: 4 },
-        { id: 3, name: 'Cream Cheese', expiry: '2024-12-15', quantity: 2, unit: 'kg', daysLeft: 7 },
-    ];
+    // Query for category data
+    const { data: categoryData } = useQuery({
+        queryKey: ['stock-by-category'],
+        queryFn: () => api.get('/api/stock/by-category').then((r) => r.data.data),
+        staleTime: 30000,
+    });
 
-    const wasteLog = [
-        { id: 1, product: 'Tomate', quantity: 2, unit: 'kg', reason: 'Vencido', date: '2024-12-07', value: 15.80 },
-        { id: 2, product: 'Alface', quantity: 1, unit: 'un', reason: 'Estragado', date: '2024-12-06', value: 8.50 },
-        { id: 3, product: 'Pão de Hambúrguer', quantity: 10, unit: 'un', reason: 'Vencido', date: '2024-12-05', value: 25.00 },
-    ];
-
-    const categorySummary: CategorySummary[] = [
-        { name: 'Carnes e Proteínas', value: 15000, count: 45, percentage: 35 },
-        { name: 'Laticínios', value: 8500, count: 28, percentage: 20 },
-        { name: 'Hortifruti', value: 4200, count: 52, percentage: 10 },
-        { name: 'Bebidas', value: 6800, count: 34, percentage: 16 },
-        { name: 'Outros', value: 8100, count: 61, percentage: 19 },
-    ];
+    // Use real category data from API
+    const categorySummary: CategorySummary[] = categoryData?.categories || [];
 
     const dailyChecklist = [
         { id: 1, task: 'Verificar temperatura das geladeiras', completed: true, time: '08:00' },
@@ -74,6 +78,8 @@ export default function Stock() {
         { id: 'checklist', label: 'Checklist', icon: ClipboardCheck },
     ];
 
+
+
     return (
         <div className="space-y-6 animate-fade-in">
             {/* Header */}
@@ -86,6 +92,12 @@ export default function Stock() {
                     <button onClick={() => refetch()} className="btn-ghost">
                         <RefreshCw className="w-4 h-4" /> Atualizar
                     </button>
+                    <button onClick={() => setShowImportModal(true)} className="btn-ghost">
+                        <Upload className="w-4 h-4" /> Importar Excel
+                    </button>
+                    <Link to="/stock/inventory" className="btn-secondary">
+                        <ClipboardCheck className="w-5 h-5" /> Fazer Inventário
+                    </Link>
                     <Link to="/stock/entry" className="btn-primary">
                         <Plus className="w-5 h-5" /> Nova Entrada
                     </Link>
@@ -126,6 +138,7 @@ export default function Stock() {
                             </div>
                         </div>
 
+                        {/* Low Stock Card */}
                         <div className="stat-card">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 rounded-xl bg-yellow-500/20">
@@ -133,11 +146,12 @@ export default function Stock() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-400">Estoque Baixo</p>
-                                    <p className="text-xl font-bold text-yellow-400">{formatNumber(summary?.lowStockCount || 8)}</p>
+                                    <p className="text-xl font-bold text-yellow-400">{formatNumber(summary?.lowStockCount || 0)}</p>
                                 </div>
                             </div>
                         </div>
 
+                        {/* Expiring Card */}
                         <div className="stat-card">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 rounded-xl bg-red-500/20">
@@ -145,11 +159,12 @@ export default function Stock() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-400">Vencendo em 7 dias</p>
-                                    <p className="text-xl font-bold text-red-400">{expiringProducts.length}</p>
+                                    <p className="text-xl font-bold text-red-400">0</p>
                                 </div>
                             </div>
                         </div>
 
+                        {/* Waste Card */}
                         <div className="stat-card">
                             <div className="flex items-center gap-3">
                                 <div className="p-3 rounded-xl bg-red-500/20">
@@ -157,7 +172,7 @@ export default function Stock() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-400">Perdas (mês)</p>
-                                    <p className="text-xl font-bold text-red-400">{formatCurrency(wasteLog.reduce((a, w) => a + w.value, 0))}</p>
+                                    <p className="text-xl font-bold text-red-400">{formatCurrency(0)}</p>
                                 </div>
                             </div>
                         </div>
@@ -174,14 +189,33 @@ export default function Stock() {
                                         <ArrowUpRight className="w-5 h-5 text-green-400" />
                                         <span className="text-green-400 font-medium">Entradas</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-white">{formatCurrency(summary?.todayEntries || 1500)}</p>
+                                    <p className="text-2xl font-bold text-white">{formatCurrency(summary?.todayEntries || 0)}</p>
                                 </div>
                                 <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
                                     <div className="flex items-center gap-2 mb-2">
                                         <ArrowDownRight className="w-5 h-5 text-red-400" />
                                         <span className="text-red-400 font-medium">Saídas</span>
                                     </div>
-                                    <p className="text-2xl font-bold text-white">{formatCurrency(summary?.todayExits || 850)}</p>
+                                    <p className="text-2xl font-bold text-white">{formatCurrency(summary?.todayExits || 0)}</p>
+                                </div>
+                            </div>
+
+                            {/* Monthly Totals */}
+                            <h3 className="text-lg font-semibold text-white mt-6 mb-4">Movimentação do Mês</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/10">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <ArrowUpRight className="w-4 h-4 text-green-400" />
+                                        <span className="text-green-400/80 text-sm font-medium">Entradas (mês)</span>
+                                    </div>
+                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.monthEntries || 0)}</p>
+                                </div>
+                                <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <ArrowDownRight className="w-4 h-4 text-red-400" />
+                                        <span className="text-red-400/80 text-sm font-medium">Saídas (mês)</span>
+                                    </div>
+                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.monthExits || 0)}</p>
                                 </div>
                             </div>
                         </div>
@@ -192,22 +226,26 @@ export default function Stock() {
                                 <Tag className="w-5 h-5 text-primary-400" /> Por Categoria
                             </h3>
                             <div className="space-y-3">
-                                {categorySummary.map((cat) => (
-                                    <div key={cat.name} className="flex items-center gap-3">
-                                        <div className="flex-1">
-                                            <div className="flex justify-between text-sm mb-1">
-                                                <span className="text-white">{cat.name}</span>
-                                                <span className="text-gray-400">{formatCurrency(cat.value)}</span>
-                                            </div>
-                                            <div className="h-2 rounded-full bg-gray-700 overflow-hidden">
-                                                <div
-                                                    className="h-full rounded-full bg-gradient-to-r from-primary-500 to-secondary-500"
-                                                    style={{ width: `${cat.percentage}%` }}
-                                                />
+                                {categorySummary.length > 0 ? (
+                                    categorySummary.map((cat) => (
+                                        <div key={cat.name} className="flex items-center gap-3">
+                                            <div className="flex-1">
+                                                <div className="flex justify-between text-sm mb-1">
+                                                    <span className="text-white">{cat.name}</span>
+                                                    <span className="text-gray-400">{formatCurrency(cat.value)}</span>
+                                                </div>
+                                                <div className="h-2 rounded-full bg-gray-700 overflow-hidden">
+                                                    <div
+                                                        className="h-full rounded-full bg-gradient-to-r from-primary-500 to-secondary-500"
+                                                        style={{ width: `${cat.percentage}%` }}
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))
+                                ) : (
+                                    <p className="text-gray-500 text-sm text-center py-4">Nenhum produto cadastrado</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -222,9 +260,9 @@ export default function Stock() {
                             <Trash2 className="w-8 h-8 text-red-400 mx-auto mb-2" />
                             <p className="font-medium text-white">Registrar Perda</p>
                         </button>
-                        <button onClick={() => setActiveTab('checklist')} className="glass-card hover:bg-white/10 transition-all text-center py-6">
-                            <ClipboardCheck className="w-8 h-8 text-blue-400 mx-auto mb-2" />
-                            <p className="font-medium text-white">Fazer Contagem</p>
+                        <button onClick={() => setShowRequisitionModal(true)} className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <FileOutput className="w-8 h-8 text-orange-400 mx-auto mb-2" />
+                            <p className="font-medium text-white">Requisição de Retirada</p>
                         </button>
                         <button onClick={() => setActiveTab('expiring')} className="glass-card hover:bg-white/10 transition-all text-center py-6">
                             <Calendar className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
@@ -271,8 +309,15 @@ export default function Stock() {
                                     <tr key={m.id}>
                                         <td className="font-medium text-white">{m.product?.name}</td>
                                         <td>
-                                            <span className={`badge ${m.type === 'IN' ? 'badge-success' : m.type === 'OUT' ? 'badge-danger' : 'badge-warning'}`}>
-                                                {m.type === 'IN' ? 'Entrada' : m.type === 'OUT' ? 'Saída' : m.type}
+                                            <span className={`badge ${m.type === 'IN' ? 'badge-success' :
+                                                m.type === 'OUT' ? 'badge-danger' :
+                                                    m.type === 'ADJUSTMENT' ? (m.quantity >= 0 ? 'badge-success' : 'badge-danger') :
+                                                        'badge-warning'
+                                                }`}>
+                                                {m.type === 'IN' ? 'Entrada' :
+                                                    m.type === 'OUT' ? 'Saída' :
+                                                        m.type === 'ADJUSTMENT' ? (m.quantity >= 0 ? 'Ajuste (Entrada)' : 'Ajuste (Saída)') :
+                                                            m.type}
                                             </span>
                                         </td>
                                         <td>{formatNumber(m.quantity)} {m.unit}</td>
@@ -614,6 +659,18 @@ export default function Stock() {
                     </div>
                 </div>
             )}
+
+            {/* Requisition Modal - Commented for debugging */}
+            <StockRequisitionModal
+                isOpen={showRequisitionModal}
+                onClose={() => setShowRequisitionModal(false)}
+            />
+
+            {/* Stock Import Modal */}
+            <StockImportModal
+                isOpen={showImportModal}
+                onClose={() => setShowImportModal(false)}
+            />
         </div>
     );
 }

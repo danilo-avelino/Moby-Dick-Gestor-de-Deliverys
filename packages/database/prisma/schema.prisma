@@ -20,6 +20,10 @@ enum UserRole {
   MANAGER
   STAFF
   VIEWER
+  DIRETOR
+  ESTOQUE
+  CHEF_DE_COZINHA
+  LIDER_DESPACHO
 }
 
 model User {
@@ -54,6 +58,11 @@ model User {
   achievements      Achievement[]
   auditLogs         AuditLog[]
   
+  stockRequests     StockRequest[]  @relation("CreatedRequests")
+  approvedRequests  StockRequest[]  @relation("ApprovedRequests")
+  requestComments   StockRequestComment[]
+  requestTemplates  StockRequestTemplate[]
+
   @@index([email])
   @@index([restaurantId])
 }
@@ -130,6 +139,10 @@ model Restaurant {
   purchaseSuggestions PurchaseSuggestion[]
   consumptionAnomalies ConsumptionAnomaly[]
   orders          Order[]
+  inventorySessions InventorySession[]
+  recipeCategories RecipeCategory[]
+  stockRequests    StockRequest[]
+  stockRequestTemplates StockRequestTemplate[]
   
   @@index([cnpj])
 }
@@ -338,9 +351,8 @@ model Product {
   
   // Stock
   currentStock      Float             @default(0)
-  minStock          Float             @default(0)
-  maxStock          Float?
   reorderPoint      Float?
+  manualReorderPoint Float?
   
   // Cost
   avgCost           Float             @default(0)
@@ -375,6 +387,10 @@ model Product {
   purchaseSuggestions PurchaseSuggestion[]
   consumptionAnomalies ConsumptionAnomaly[]
   stockBatches      StockBatch[]
+  inventoryItems    InventoryItem[]
+  recipesAsOutput   Recipe[] @relation("RecipeOutput")
+  stockRequestItems StockRequestItem[]
+  stockRequestTemplateItems StockRequestTemplateItem[]
   
   @@unique([restaurantId, sku])
   @@unique([restaurantId, barcode])
@@ -510,6 +526,35 @@ model StockBatch {
 // RECIPES / TECHNICAL SHEETS (Phase 1)
 // ==========================================
 
+enum RecipeType {
+  TRANSFORMED_ITEM
+  PORTIONING
+  FINAL_PRODUCT
+  COMBO
+}
+
+enum RecipeStatus {
+  DRAFT
+  INCOMPLETE
+  COMPLETE
+}
+
+model RecipeCategory {
+  id              String      @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  name            String
+  
+  recipes         Recipe[]
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([restaurantId, name])
+  @@index([restaurantId])
+}
+
 model Recipe {
   id              String            @id @default(cuid())
   restaurantId    String
@@ -518,8 +563,20 @@ model Recipe {
   name            String
   description     String?
   
-  categoryId      String?
-  category        ProductCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  type            RecipeType        @default(FINAL_PRODUCT)
+  status          RecipeStatus      @default(DRAFT)
+  
+  // Categories
+  recipeCategoryId String?
+  recipeCategory   RecipeCategory?  @relation(fields: [recipeCategoryId], references: [id], onDelete: SetNull)
+  
+  // Legacy Category (Product Category) - keeping for backward compatibility if needed, or migration
+  productCategoryId String?
+  productCategory   ProductCategory? @relation(fields: [productCategoryId], references: [id], onDelete: SetNull)
+  
+  // Output Product (for Transformed/Portioning)
+  outputProductId String?
+  outputProduct   Product?          @relation("RecipeOutput", fields: [outputProductId], references: [id], onDelete: SetNull)
   
   // Yield
   yieldQuantity   Float             @default(1)
@@ -531,6 +588,7 @@ model Recipe {
   costHistory     Json?             // [{ date, cost }]
   
   // Pricing
+  targetCmv       Float?            // Target CMV for this recipe
   suggestedPrice  Float?
   currentPrice    Float?
   
@@ -561,9 +619,11 @@ model Recipe {
   ingredients     RecipeIngredient[]
   pricingSuggestions PricingSuggestion[]
   itemPerformances ItemPerformance[]
+  portioningBatches PortioningBatch[]
+  usedAsIngredient RecipeIngredient[] @relation("SubRecipe")
   
   @@index([restaurantId])
-  @@index([categoryId])
+  @@index([recipeCategoryId])
   @@index([name])
 }
 
@@ -578,9 +638,14 @@ model RecipeIngredient {
   recipe          Recipe          @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   
   ingredientType  IngredientType
+  
+  // For PRODUCT type:
   productId       String?
   product         Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // For RECIPE type (used in Combos or when using a Transformed Item defined as Recipe):
   subRecipeId     String?
+  subRecipe       Recipe?         @relation("SubRecipe", fields: [subRecipeId], references: [id])
   
   quantity        Float
   unit            String
@@ -596,6 +661,7 @@ model RecipeIngredient {
   
   @@index([recipeId])
   @@index([productId])
+  @@index([subRecipeId])
 }
 
 enum SalesChannel {
@@ -672,16 +738,22 @@ model PortioningProcess {
   updatedAt       DateTime          @updatedAt
   
   // Relations
-  batches         PortioningBatch[]
+  // batches         PortioningBatch[] // Deprecated relationship in favor of Recipe? Keeping for now.
   
   @@index([restaurantId])
 }
 
 model PortioningBatch {
   id                  String            @id @default(cuid())
-  processId           String
-  process             PortioningProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
   
+  // Optional link to old Process model (deprecated?)
+  processId           String?
+  // process             PortioningProcess? @relation(fields: [processId], references: [id], onDelete: SetNull)
+  
+  // New: Link to Recipe (Type: PORTIONING)
+  recipeId            String?
+  recipe              Recipe?           @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
   // Input
   rawQuantity         Float
   rawUnit             String
@@ -704,6 +776,7 @@ model PortioningBatch {
   notes               String?
   
   @@index([processId])
+  @@index([recipeId])
   @@index([processedAt])
 }
 
@@ -1129,4 +1202,182 @@ model AuditLog {
   @@index([userId])
   @@index([entityType, entityId])
   @@index([createdAt])
+}
+
+// ==========================================
+// INVENTORY CONTROL (New Feature)
+// ==========================================
+
+model InventorySession {
+  id            String            @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  status        InventoryStatus   @default(OPEN)
+  startDate     DateTime          @default(now())
+  endDate       DateTime?
+  
+  // Statistics
+  precision     Float?            // Overall precision percentage (0-100)
+  itemsCount    Int               @default(0)
+  itemsCorrect  Int               @default(0)
+  
+  notes         String?
+  createdBy     String?           // User ID name snapshot
+  shareToken    String?           @unique // Token for public sharing without login
+  
+  items         InventoryItem[]
+  
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([restaurantId])
+}
+
+model InventoryItem {
+  id                  String           @id @default(cuid())
+  inventorySessionId  String
+  inventorySession    InventorySession @relation(fields: [inventorySessionId], references: [id], onDelete: Cascade)
+  
+  productId           String
+  product             Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Snapshots
+  productName         String?          // Snapshot in case product is deleted
+  categoryName        String?          
+  unit                String?
+  costPerUnit         Float?
+  
+  expectedQuantity    Float            // System stock at start of count
+  countedQuantity     Float?           // Actual input
+  
+  difference          Float?           // counted - expected
+  isCorrect           Boolean          @default(false) // If difference is within tolerance (0)
+  
+  countedAt           DateTime?
+  
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([inventorySessionId, productId])
+  @@index([inventorySessionId])
+}
+
+enum InventoryStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+// ==========================================
+// STOCK REQUESTS (New Feature)
+// ==========================================
+
+enum StockRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WorkShift {
+  DAY
+  NIGHT
+}
+
+model StockRequest {
+  id                String              @id @default(cuid())
+  code              String              // Friendly ID like REQ-001
+  restaurantId      String
+  restaurant        Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  createdByUserId   String
+  createdBy         User                @relation("CreatedRequests", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  status            StockRequestStatus  @default(PENDING)
+  chefObservation   String?
+
+  approvedAt        DateTime?
+  approvedByUserId  String?
+  approvedBy        User?               @relation("ApprovedRequests", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relations
+  items             StockRequestItem[]
+  comments          StockRequestComment[]
+
+  @@unique([restaurantId, code])
+  @@index([restaurantId])
+  @@index([createdByUserId])
+  @@index([status])
+}
+
+model StockRequestItem {
+  id                String        @id @default(cuid())
+  stockRequestId    String
+  stockRequest      StockRequest  @relation(fields: [stockRequestId], references: [id], onDelete: Cascade)
+
+  productId         String
+  product           Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Snapshots
+  productNameSnapshot String
+  unitSnapshot        String
+
+  quantityRequested Float
+  quantityApproved  Float?
+  
+  notes             String?
+
+  createdAt         DateTime      @default(now())
+
+  @@index([stockRequestId])
+  @@index([productId])
+}
+
+model StockRequestComment {
+  id                String        @id @default(cuid())
+  stockRequestId    String
+  stockRequest      StockRequest  @relation(fields: [stockRequestId], references: [id], onDelete: Cascade)
+
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  message           String
+  
+  createdAt         DateTime      @default(now())
+
+  @@index([stockRequestId])
+}
+
+model StockRequestTemplate {
+  id                String        @id @default(cuid())
+  restaurantId      String
+  restaurant        Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+
+  name              String?       // "Lista Padrão", "Lista Segunda-feira", etc.
+  
+  createdByUserId   String
+  createdBy         User          @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  items             StockRequestTemplateItem[]
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([restaurantId])
+  @@index([createdByUserId])
+}
+
+model StockRequestTemplateItem {
+  id                String               @id @default(cuid())
+  templateId        String
+  template          StockRequestTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  productId         String
+  product           Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  standardQuantity  Float                @default(0)
+
+  @@unique([templateId, productId])
 }

@@ -1,7 +1,22 @@
 import axios from 'axios';
 
+const getBaseUrl = () => {
+    const configuredUrl = import.meta.env.VITE_API_URL || '';
+
+    // If configured URL is localhost but we are on a different host (LAN),
+    // we should use relative path to let the proxy handle it.
+    if (configuredUrl.includes('localhost') &&
+        typeof window !== 'undefined' &&
+        window.location.hostname !== 'localhost' &&
+        window.location.hostname !== '127.0.0.1') {
+        return '';
+    }
+
+    return configuredUrl;
+};
+
 export const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || '',
+    baseURL: getBaseUrl(),
     headers: {
         'Content-Type': 'application/json',
     },

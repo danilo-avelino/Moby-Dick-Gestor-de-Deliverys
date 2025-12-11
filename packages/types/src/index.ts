@@ -15,6 +15,10 @@ export enum UserRole {
     MANAGER = 'MANAGER',
     STAFF = 'STAFF',
     VIEWER = 'VIEWER',
+    DIRETOR = 'DIRETOR',
+    ESTOQUE = 'ESTOQUE',
+    CHEF_DE_COZINHA = 'CHEF_DE_COZINHA',
+    LIDER_DESPACHO = 'LIDER_DESPACHO',
 }
 
 export enum IntegrationPlatform {
@@ -201,17 +205,21 @@ export interface ProductDTO {
     category?: CategoryDTO;
     baseUnit: string;
     currentStock: number;
-    minStock: number;
-    maxStock?: number;
+    reorderPoint?: number;
+    manualReorderPoint?: number;
+    last7DaysConsumption?: number;
     avgCost: number;
     lastPurchasePrice: number;
     isPerishable: boolean;
     shelfLifeDays?: number;
-    defaultSupplier?: SupplierDTO;
+    defaultSupplier?: Partial<SupplierDTO>;
     isActive: boolean;
     imageUrl?: string;
     createdAt: string;
     updatedAt: string;
+    movements?: StockMovementDTO[];
+    chartData?: any[];
+    recipeCount?: number;
 }
 
 export interface CreateProductRequest {
@@ -222,8 +230,8 @@ export interface CreateProductRequest {
     categoryId?: string;
     baseUnit: string;
     conversions?: Record<string, number>;
-    minStock?: number;
-    maxStock?: number;
+    reorderPoint?: number;
+    manualReorderPoint?: number;
     isPerishable?: boolean;
     shelfLifeDays?: number;
     defaultSupplierId?: string;
@@ -624,3 +632,90 @@ export type AlertEvent = WebSocketEvent<AlertDTO>;
 export type StockUpdateEvent = WebSocketEvent<{ productId: string; newStock: number }>;
 export type OrderEvent = WebSocketEvent<{ orderId: string; status: string; total: number }>;
 export type GoalProgressEvent = WebSocketEvent<{ goalId: string; currentValue: number; progressPercent: number }>;
+
+// ==========================================
+// STOCK REQUESTS
+// ==========================================
+
+export enum StockRequestStatus {
+    PENDING = 'PENDING',
+    APPROVED = 'APPROVED',
+}
+
+export interface StockRequestDTO {
+    id: string;
+    code: string;
+    restaurantId: string;
+    // restaurant?: RestaurantDTO;
+    createdByUserId: string;
+    createdBy?: UserDTO;
+    status: StockRequestStatus;
+    chefObservation?: string;
+    approvedAt?: string;
+    approvedByUserId?: string;
+    approvedBy?: UserDTO;
+    createdAt: string;
+    updatedAt: string;
+    items?: StockRequestItemDTO[];
+    comments?: StockRequestCommentDTO[];
+}
+
+export interface StockRequestItemDTO {
+    id: string;
+    stockRequestId: string;
+    productId: string;
+    product?: ProductDTO;
+    productNameSnapshot: string;
+    unitSnapshot: string;
+    quantityRequested: number;
+    quantityApproved?: number;
+    notes?: string;
+    createdAt: string;
+}
+
+export interface StockRequestCommentDTO {
+    id: string;
+    stockRequestId: string;
+    userId: string;
+    user?: UserDTO;
+    message: string;
+    createdAt: string;
+}
+
+export interface CreateStockRequestRequest {
+    chefObservation?: string;
+    items: {
+        productId: string;
+        quantity: number;
+        // unit: string; // usually derived from product, but if we want to support multiple units we need more logic. 
+        // For simplicity let's stick to base unit or derived in backend.
+        notes?: string;
+    }[];
+}
+
+export interface ApproveStockRequestRequest {
+    items: {
+        itemId: string;
+        quantityApproved: number;
+    }[];
+}
+
+export interface CreateStockRequestCommentRequest {
+    message: string;
+}
+
+export interface StockRequestTemplateDTO {
+    id: string;
+    restaurantId: string;
+    name?: string;
+    items: {
+        productId: string;
+    }[];
+}
+
+export interface SaveStockRequestTemplateRequest {
+    name?: string;
+    items: {
+        productId: string;
+    }[];
+}

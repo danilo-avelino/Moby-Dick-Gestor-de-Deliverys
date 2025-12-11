@@ -17,7 +17,11 @@ const ingredientSchema = z.object({
 const createRecipeSchema = z.object({
     name: z.string().min(2),
     description: z.string().optional(),
-    categoryId: z.string().optional(),
+    type: z.enum(['TRANSFORMED_ITEM', 'PORTIONING', 'FINAL_PRODUCT', 'COMBO']).default('FINAL_PRODUCT'),
+    status: z.enum(['DRAFT', 'INCOMPLETE', 'COMPLETE']).default('DRAFT'),
+    recipeCategoryId: z.string().optional(),
+    outputProductId: z.string().optional(),
+    targetCmv: z.number().min(0).max(100).optional(),
     yieldQuantity: z.number().positive().default(1),
     yieldUnit: z.string().default('un'),
     currentPrice: z.number().min(0).optional(),
@@ -105,7 +109,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         }
 
         if (request.query.categoryId) {
-            where.categoryId = request.query.categoryId;
+            where.recipeCategoryId = request.query.categoryId;
         }
 
         if (request.query.isActive !== undefined) {
@@ -116,7 +120,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             prisma.recipe.findMany({
                 where,
                 include: {
-                    category: { select: { id: true, name: true } },
+                    recipeCategory: { select: { id: true, name: true } },
                     _count: { select: { ingredients: true } },
                 },
                 skip,
@@ -136,7 +140,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
                 id: r.id,
                 name: r.name,
                 description: r.description,
-                category: r.category,
+                category: r.recipeCategory,
                 yieldQuantity: r.yieldQuantity,
                 yieldUnit: r.yieldUnit,
                 currentCost: r.currentCost,
@@ -183,7 +187,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
                 restaurantId: request.user!.restaurantId,
             },
             include: {
-                category: true,
+                recipeCategory: true,
                 ingredients: {
                     include: {
                         product: {
@@ -234,7 +238,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
                 id: recipe.id,
                 name: recipe.name,
                 description: recipe.description,
-                category: recipe.category,
+                category: recipe.recipeCategory,
                 yieldQuantity: recipe.yieldQuantity,
                 yieldUnit: recipe.yieldUnit,
                 currentCost: recipe.currentCost,
@@ -300,7 +304,11 @@ export async function recipeRoutes(fastify: FastifyInstance) {
                 restaurantId: request.user!.restaurantId!,
                 name: body.name,
                 description: body.description,
-                categoryId: body.categoryId,
+                type: body.type,
+                status: body.status,
+                recipeCategoryId: body.recipeCategoryId,
+                outputProductId: body.outputProductId,
+                targetCmv: body.targetCmv,
                 yieldQuantity: body.yieldQuantity,
                 yieldUnit: body.yieldUnit,
                 currentCost: costWithOverhead,
@@ -328,7 +336,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
                 },
             },
             include: {
-                category: true,
+                recipeCategory: true,
                 ingredients: {
                     include: { product: true },
                 },
@@ -418,7 +426,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             where: { id: request.params.id },
             data: updateData,
             include: {
-                category: true,
+                recipeCategory: true,
                 ingredients: { include: { product: true } },
             },
         });

@@ -8,6 +8,10 @@ import Products from './pages/products/Products';
 import ProductForm from './pages/products/ProductForm';
 import Stock from './pages/stock/Stock';
 import StockEntry from './pages/stock/StockEntry';
+import InventoryDashboard from './pages/inventory/InventoryDashboard';
+import InventoryActiveSession from './pages/inventory/InventoryActiveSession';
+import InventoryCategoryCount from './pages/inventory/InventoryCategoryCount';
+import InventoryPublicCount from './pages/inventory/InventoryPublicCount';
 import Recipes from './pages/recipes/Recipes';
 import RecipeForm from './pages/recipes/RecipeForm';
 import CMV from './pages/cmv/CMV';
@@ -18,6 +22,10 @@ import Integrations from './pages/integrations/Integrations';
 import Purchases from './pages/purchases/Purchases';
 import Settings from './pages/settings/Settings';
 import WorkTimes from './pages/work-times/WorkTimes';
+import NPS from './pages/nps/NPS';
+import ChefRequests from './pages/stock-requests/ChefRequests';
+import ManagerRequests from './pages/stock-requests/ManagerRequests';
+import UserManagement from './pages/admin/UserManagement';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { isAuthenticated } = useAuthStore();
@@ -31,6 +39,12 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
 }
 
+function DirectorRoute({ children }: { children: React.ReactNode }) {
+    const { user } = useAuthStore();
+    if (user?.role !== 'DIRETOR') return <Navigate to="/" replace />;
+    return <>{children}</>;
+}
+
 export default function App() {
     return (
         <BrowserRouter>
@@ -38,6 +52,7 @@ export default function App() {
                 {/* Public routes */}
                 <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+                <Route path="/inventory/share/:token/:categoryId" element={<InventoryPublicCount />} />
 
                 {/* Protected routes */}
                 <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
@@ -47,6 +62,11 @@ export default function App() {
                     <Route path="products/:id" element={<ProductForm />} />
                     <Route path="stock" element={<Stock />} />
                     <Route path="stock/entry" element={<StockEntry />} />
+                    <Route path="stock/requests" element={<ManagerRequests />} />
+                    <Route path="stock/my-requests" element={<ChefRequests />} />
+                    <Route path="stock/inventory" element={<InventoryDashboard />} />
+                    <Route path="stock/inventory/:id" element={<InventoryActiveSession />} />
+                    <Route path="stock/inventory/:id/count/:categoryId" element={<InventoryCategoryCount />} />
                     <Route path="recipes" element={<Recipes />} />
                     <Route path="recipes/new" element={<RecipeForm />} />
                     <Route path="recipes/:id" element={<RecipeForm />} />
@@ -56,8 +76,10 @@ export default function App() {
                     <Route path="goals" element={<Goals />} />
                     <Route path="integrations" element={<Integrations />} />
                     <Route path="purchases" element={<Purchases />} />
-                    <Route path="settings" element={<Settings />} />
+                    <Route path="settings" element={<DirectorRoute><Settings /></DirectorRoute>} />
                     <Route path="work-times" element={<WorkTimes />} />
+                    <Route path="nps" element={<NPS />} />
+                    <Route path="admin/users" element={<UserManagement />} />
                 </Route>
 
                 {/* 404 */}

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { formatCurrency, formatNumber } from '../../lib/utils';
+import { formatCurrency } from '../../lib/utils';
 import { ArrowLeft, Plus, Trash2, Save, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -37,8 +37,13 @@ export default function StockEntry() {
     const mutation = useMutation({
         mutationFn: (data: any) => api.post('/api/stock/movements/bulk-entry', data),
         onSuccess: () => {
+            // Invalidate all stock and product-related queries for immediate update
             queryClient.invalidateQueries({ queryKey: ['stock'] });
+            queryClient.invalidateQueries({ queryKey: ['stock-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['stock-movements'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
+            queryClient.invalidateQueries({ queryKey: ['products-simple'] });
+            queryClient.invalidateQueries({ queryKey: ['product-details'] });
             toast.success('Entrada registrada com sucesso!');
             navigate('/stock');
         },

@@ -7,12 +7,12 @@ import { authenticate } from '../middleware/auth';
 import type { LoginRequest, LoginResponse, RegisterRequest, ApiResponse } from 'types';
 
 const loginSchema = z.object({
-    email: z.string().email('Invalid email'),
+    email: z.string().email('Invalid email').transform(e => e.toLowerCase().trim()),
     password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 const registerSchema = z.object({
-    email: z.string().email('Invalid email'),
+    email: z.string().email('Invalid email').transform(e => e.toLowerCase().trim()),
     password: z.string().min(6, 'Password must be at least 6 characters'),
     firstName: z.string().min(2, 'First name is required'),
     lastName: z.string().min(2, 'Last name is required'),

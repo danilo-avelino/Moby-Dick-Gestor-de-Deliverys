@@ -2,30 +2,57 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth';
 import {
     LayoutDashboard, Package, Warehouse, TrendingUp, PieChart, BookOpen,
-    Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock
+    Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
+    MessageSquare, ClipboardList, ClipboardCheck, Apple, Users
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn, getInitials } from '../lib/utils';
 
+import { api } from '../lib/api';
+import { useQuery } from '@tanstack/react-query';
+
 const navigation = [
-    { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Produtos', href: '/products', icon: Package },
-    { name: 'Estoque', href: '/stock', icon: Warehouse },
-    { name: 'Fichas Técnicas', href: '/recipes', icon: BookOpen },
-    { name: 'CMV', href: '/cmv', icon: TrendingUp },
-    { name: 'Análise Cardápio', href: '/menu-analysis', icon: PieChart },
-    { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock },
-    { name: 'Alertas', href: '/alerts', icon: Bell, badge: true },
-    { name: 'Metas', href: '/goals', icon: Target },
-    { name: 'Integrações', href: '/integrations', icon: Plug },
-    { name: 'Compras IA', href: '/purchases', icon: ShoppingCart },
+    { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Produtos', href: '/products', icon: Package, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Estoque', href: '/stock', icon: Warehouse, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'], end: true },
+    { name: 'Requisição (Chef)', href: '/stock/my-requests', icon: ClipboardList, roles: ['CHEF_DE_COZINHA'] },
+    { name: 'Requisições (Gestão)', href: '/stock/requests', icon: ClipboardCheck, badge: true, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Fichas Técnicas', href: '/recipes', icon: BookOpen, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'CMV', href: '/cmv', icon: TrendingUp, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Análise Cardápio', href: '/menu-analysis', icon: PieChart, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: ['DIRETOR', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Metas', href: '/goals', icon: Target, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Integrações', href: '/integrations', icon: Plug, roles: ['DIRETOR', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Compras IA', href: '/purchases', icon: ShoppingCart, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'NPS', href: '/nps', icon: MessageSquare, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: ['DIRETOR', 'SUPER_ADMIN'] },
 ];
 
 export default function Layout() {
     const { user, logout } = useAuthStore();
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [alertCount] = useState(3); // Would come from API
+
+    // Fetch pending requests count for badge
+    const { data: requestStats } = useQuery({
+        queryKey: ['stock-requests'],
+        queryFn: () => api.get('/api/stock-requests').then(r => r.data.data),
+        select: (data: any[]) => {
+            const list = data || [];
+            const pending = list.filter((l: any) => l.status === 'PENDING').length;
+            return { pending };
+        },
+        enabled: !!user && (user.role === 'DIRETOR' || user.role === 'ESTOQUE' || user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'MANAGER'),
+    });
+
+    const alertCount = 3; // Mock
+    const requestCount = requestStats?.pending || 0;
+
+    const filteredNavigation = navigation.filter(item => {
+        if (!item.roles) return true;
+        return item.roles.includes(user?.role as any);
+    });
 
     const handleLogout = () => {
         logout();
@@ -57,7 +84,7 @@ export default function Layout() {
                             </div>
                             <div>
                                 <h1 className="font-bold text-white">Moby Dick</h1>
-                                <p className="text-xs text-gray-500">{user?.restaurant?.name}</p>
+                                <p className="text-xs text-gray-500">Gestão por indicadores</p>
                             </div>
                         </div>
                         <button
@@ -70,18 +97,24 @@ export default function Layout() {
 
                     {/* Navigation */}
                     <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-                        {navigation.map((item) => (
+                        {filteredNavigation.map((item) => (
                             <NavLink
                                 key={item.href}
                                 to={item.href}
+                                end={(item as any).end}
                                 onClick={() => setSidebarOpen(false)}
                                 className={({ isActive }) => cn('sidebar-link', isActive && 'active')}
                             >
                                 <item.icon className="w-5 h-5" />
                                 <span>{item.name}</span>
-                                {item.badge && alertCount > 0 && (
+                                {item.badge && item.name === 'Alertas' && alertCount > 0 && (
                                     <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                                         {alertCount}
+                                    </span>
+                                )}
+                                {item.badge && (item.name.includes('Requisições')) && requestCount > 0 && (
+                                    <span className="ml-auto bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                                        {requestCount}
                                     </span>
                                 )}
                             </NavLink>
@@ -90,13 +123,15 @@ export default function Layout() {
 
                     {/* User section */}
                     <div className="p-4 border-t border-white/5">
-                        <NavLink
-                            to="/settings"
-                            className={({ isActive }) => cn('sidebar-link mb-2', isActive && 'active')}
-                        >
-                            <Settings className="w-5 h-5" />
-                            <span>Configurações</span>
-                        </NavLink>
+                        {user?.role === 'DIRETOR' && (
+                            <NavLink
+                                to="/settings"
+                                className={({ isActive }) => cn('sidebar-link mb-2', isActive && 'active')}
+                            >
+                                <Settings className="w-5 h-5" />
+                                <span>Configurações</span>
+                            </NavLink>
+                        )}
                         <button
                             onClick={handleLogout}
                             className="sidebar-link w-full text-red-400 hover:text-red-300 hover:bg-red-500/10"

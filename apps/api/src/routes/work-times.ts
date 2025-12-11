@@ -1,7 +1,19 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { calculateAverage } from '../services/time-calculator';
+
+// function calculateAverage(numbers: (number | null)[]): number | null {
+//     const valid = numbers.filter((n): n is number => n !== null);
+//     if (valid.length === 0) return null;
+//     return valid.reduce((a, b) => a + b, 0) / valid.length;
+// }
+// Inline version used below or simplified logic.
+
+function calculateAverage(numbers: (number | null)[]): number | null {
+    const valid = numbers.filter((n): n is number => n !== null);
+    if (valid.length === 0) return null;
+    return valid.reduce((a, b) => a + b, 0) / valid.length;
+}
 
 // Schemas
 const workTimesQuerySchema = z.object({

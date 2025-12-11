@@ -8,10 +8,10 @@ import { UserRole, type ApiResponse } from 'types';
 const updateRestaurantSchema = z.object({
     name: z.string().min(2).optional(),
     tradeName: z.string().optional(),
-    email: z.string().email().optional(),
+    email: z.string().email().optional().or(z.literal('')).transform(v => v === '' ? null : v),
     phone: z.string().optional(),
-    logoUrl: z.string().url().optional(),
-    cnpj: z.string().optional(),
+    logoUrl: z.string().url().optional().or(z.literal('')).transform(v => v === '' ? null : v),
+    cnpj: z.string().optional().transform(v => v === '' ? null : v),
     street: z.string().optional(),
     number: z.string().optional(),
     complement: z.string().optional(),
@@ -29,6 +29,117 @@ const updateRestaurantSchema = z.object({
 });
 
 export async function restaurantRoutes(fastify: FastifyInstance) {
+
+    // --- ADMIN / DIRECTOR ROUTES ---
+
+    // LIST ALL Restaurants (Admin/Director)
+    fastify.get('/', {
+        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
+    }, async (request, reply) => {
+        const { search, status } = request.query as { search?: string, status?: string };
+        const where: any = {};
+
+        if (search) {
+            where.name = { contains: search, mode: 'insensitive' };
+        }
+        if (status) {
+            where.isActive = status === 'active';
+        }
+
+        const restaurants = await prisma.restaurant.findMany({
+            where,
+            orderBy: { name: 'asc' },
+            select: {
+                id: true,
+                name: true,
+                cnpj: true,
+                isActive: true,
+                city: true,
+                state: true,
+                createdAt: true,
+                _count: {
+                    select: { users: true }
+                }
+            }
+        });
+
+        return reply.send({ success: true, data: restaurants });
+    });
+
+    // CREATE Restaurant
+    fastify.post('/', {
+        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
+    }, async (request, reply) => {
+        const body = z.object({
+            name: z.string().min(2),
+            cnpj: z.string().optional().transform(v => v === '' ? undefined : v),
+            phone: z.string().optional(),
+            email: z.string().email().optional().or(z.literal('')),
+            street: z.string().optional(),
+            number: z.string().optional(),
+            neighborhood: z.string().optional(),
+            city: z.string().optional(),
+            state: z.string().optional(),
+            isActive: z.boolean().default(true),
+        }).parse(request.body);
+
+        if (body.cnpj) {
+            const existing = await prisma.restaurant.findUnique({
+                where: { cnpj: body.cnpj }
+            });
+            if (existing) {
+                throw errors.conflict('CNPJ já cadastrado');
+            }
+        }
+
+        const restaurant = await prisma.restaurant.create({
+            data: body
+        });
+
+        return reply.status(201).send({ success: true, data: restaurant });
+    });
+
+    // UPDATE Restaurant
+    fastify.put<{ Params: { id: string } }>('/:id', {
+        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const body = updateRestaurantSchema.parse(request.body); // Reusing existing schema or define new one if needed
+
+        if (body.cnpj) {
+            const existing = await prisma.restaurant.findUnique({
+                where: { cnpj: body.cnpj }
+            });
+            if (existing && existing.id !== id) {
+                throw errors.conflict('CNPJ já cadastrado em outro restaurante');
+            }
+        }
+
+        const restaurant = await prisma.restaurant.update({
+            where: { id },
+            data: body,
+        });
+
+        return reply.send({ success: true, data: restaurant });
+    });
+
+    // TOGGLE STATUS (Archive/Active)
+    fastify.patch<{ Params: { id: string }, Body: { isActive: boolean } }>('/:id/status', {
+        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const { isActive } = request.body;
+
+        await prisma.restaurant.update({
+            where: { id },
+            data: { isActive }
+        });
+
+        return reply.send({ success: true, data: { message: 'Status atualizado' } });
+    });
+
+    // --- EXISTING ROUTES ---
+
     // Get current restaurant
     fastify.get('/current', {
         preHandler: [authenticate],
