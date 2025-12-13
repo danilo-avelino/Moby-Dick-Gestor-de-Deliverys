@@ -20,12 +20,18 @@ import Alerts from './pages/alerts/Alerts';
 import Goals from './pages/goals/Goals';
 import Integrations from './pages/integrations/Integrations';
 import Purchases from './pages/purchases/Purchases';
+import PurchaseLists from './pages/purchases/PurchaseLists';
+import PurchaseListDetail from './pages/purchases/PurchaseListDetail';
 import Settings from './pages/settings/Settings';
 import WorkTimes from './pages/work-times/WorkTimes';
 import NPS from './pages/nps/NPS';
 import ChefRequests from './pages/stock-requests/ChefRequests';
 import ManagerRequests from './pages/stock-requests/ManagerRequests';
 import UserManagement from './pages/admin/UserManagement';
+import RecentOrders from './pages/pdv/RecentOrders';
+import NewOrder from './pages/pdv/NewOrder';
+import CashRegister from './pages/pdv/CashRegister';
+import OrderHistory from './pages/pdv/OrderHistory';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const { isAuthenticated } = useAuthStore();
@@ -75,11 +81,19 @@ export default function App() {
                     <Route path="alerts" element={<Alerts />} />
                     <Route path="goals" element={<Goals />} />
                     <Route path="integrations" element={<Integrations />} />
-                    <Route path="purchases" element={<Purchases />} />
+                    <Route path="purchases" element={<PurchaseLists />} />
+                    <Route path="purchases/:id" element={<PurchaseListDetail />} />
+                    <Route path="purchases/ai" element={<Purchases />} />
                     <Route path="settings" element={<DirectorRoute><Settings /></DirectorRoute>} />
                     <Route path="work-times" element={<WorkTimes />} />
                     <Route path="nps" element={<NPS />} />
                     <Route path="admin/users" element={<UserManagement />} />
+
+                    {/* PDV Routes */}
+                    <Route path="pdv" element={<RecentOrders />} />
+                    <Route path="pdv/new" element={<NewOrder />} />
+                    <Route path="pdv/cash" element={<CashRegister />} />
+                    <Route path="pdv/history" element={<OrderHistory />} />
                 </Route>
 
                 {/* 404 */}

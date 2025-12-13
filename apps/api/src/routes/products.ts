@@ -146,7 +146,7 @@ export async function productRoutes(fastify: FastifyInstance) {
                         category: p.category || undefined,
                         baseUnit: p.baseUnit,
                         currentStock: p.currentStock,
-                        reorderPoint: p.reorderPoint || undefined,
+                        reorderPoint: p.reorderPoint ?? 0, // Return 0 instead of undefined for consistent filtering
                         manualReorderPoint: p.manualReorderPoint || undefined,
                         avgCost: p.avgCost,
                         lastPurchasePrice: p.lastPurchasePrice,

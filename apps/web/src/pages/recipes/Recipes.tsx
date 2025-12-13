@@ -10,11 +10,14 @@ import {
 import toast from 'react-hot-toast';
 import { CreateCategoryModal } from './components/CreateCategoryModal';
 import { NewRecipeModal } from './components/NewRecipeModal';
+import { useAuthStore } from '../../stores/auth';
 
 export default function Recipes() {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const queryClient = useQueryClient();
+    const { user } = useAuthStore();
+    const isDiretor = user?.role === 'DIRETOR' || user?.role === 'SUPER_ADMIN';
     const [activeTab, setActiveTab] = useState<'recipes' | 'portioning'>('recipes');
 
     // Recipes State
@@ -129,7 +132,7 @@ export default function Recipes() {
                     </button>
                     <button
                         onClick={() => setActiveTab('portioning')}
-                        className={`text-lg font-bold border-b-2 px-1 pb-1 transition-colors ${activeTab === 'portioning' ? 'text-white border-primary-500' : 'text-gray-400 border-transparent hover:text-white'}`}
+                        className={`text-lg font-bold border-b-2 px-1 pb-1 transition-colors ${(activeTab as string) === 'portioning' ? 'text-white border-primary-500' : 'text-gray-400 border-transparent hover:text-white'}`}
                     >
                         Porcionados
                     </button>
@@ -185,12 +188,15 @@ export default function Recipes() {
                                         }`}>
                                         {cat.completedRecipes}/{cat.totalRecipes}
                                     </div>
-                                    <button
-                                        onClick={(e) => handleDeleteCategory(e, cat.id)}
-                                        className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    {isDiretor && (
+                                        <button
+                                            onClick={(e) => handleDeleteCategory(e, cat.id)}
+                                            className="p-1 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            title="Excluir categoria (apenas Diretores)"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             <h3 className="text-lg font-bold text-white mb-1">{cat.name}</h3>

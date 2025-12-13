@@ -5,8 +5,8 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import jwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
-import swagger from '@fastify/swagger';
-import swaggerUI from '@fastify/swagger-ui';
+// import swagger from '@fastify/swagger';
+// import swaggerUI from '@fastify/swagger-ui';
 import websocket from '@fastify/websocket';
 
 import { prisma } from 'database';
@@ -32,6 +32,12 @@ import { stockImportRoutes } from './routes/stock-import';
 import { recipeAIRoutes } from './routes/recipe-ai';
 import { stockRequestRoutes } from './routes/stock-requests';
 import { userRoutes } from './routes/users';
+import { pdvOrdersRoutes } from './routes/pdv-orders';
+import { pdvPaymentsRoutes } from './routes/pdv-payments';
+import { cashSessionRoutes } from './routes/cash-session';
+import { customersRoutes } from './routes/customers';
+import { tablesRoutes } from './routes/tables';
+import { purchaseListRoutes, purchaseConfigRoutes } from './routes/purchase-lists';
 import { integrationManager } from './services/integrations/integration-manager';
 import { errorHandler } from './middleware/error-handler';
 
@@ -186,6 +192,17 @@ async function buildServer() {
     await registerSafe(recipeAIRoutes, { prefix: '/api/recipes/ai' });
     await registerSafe(stockRequestRoutes, { prefix: '/api/stock-requests' });
     await registerSafe(userRoutes, { prefix: '/api/users' });
+
+    // PDV Routes
+    await registerSafe(pdvOrdersRoutes, { prefix: '/api/pdv/orders' });
+    await registerSafe(pdvPaymentsRoutes, { prefix: '/api/pdv' });
+    await registerSafe(cashSessionRoutes, { prefix: '/api/pdv/cash' });
+    await registerSafe(customersRoutes, { prefix: '/api/customers' });
+    await registerSafe(tablesRoutes, { prefix: '/api/tables' });
+
+    // Purchase Lists
+    await registerSafe(purchaseListRoutes, { prefix: '/api/purchase-lists' });
+    await registerSafe(purchaseConfigRoutes, { prefix: '/api/purchase-config' });
 
 
     // WebSocket for real-time updates

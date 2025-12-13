@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import StockRequisitionModal from './components/StockRequisitionModal';
@@ -20,6 +20,7 @@ interface CategorySummary {
 }
 
 export default function Stock() {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState<'overview' | 'movements' | 'waste' | 'expiring' | 'checklist'>('overview');
     const [search, setSearch] = useState('');
     const [showWasteModal, setShowWasteModal] = useState(false);
@@ -139,7 +140,11 @@ export default function Stock() {
                         </div>
 
                         {/* Low Stock Card */}
-                        <div className="stat-card">
+                        <div
+                            className="stat-card cursor-pointer hover:bg-white/10 transition-all group"
+                            onClick={() => navigate('/products?filter=lowStock')}
+                            title="Produtos com estoque atual ≤ ponto de reposição"
+                        >
                             <div className="flex items-center gap-3">
                                 <div className="p-3 rounded-xl bg-yellow-500/20">
                                     <AlertTriangle className="w-5 h-5 text-yellow-400" />
@@ -147,12 +152,18 @@ export default function Stock() {
                                 <div>
                                     <p className="text-sm text-gray-400">Estoque Baixo</p>
                                     <p className="text-xl font-bold text-yellow-400">{formatNumber(summary?.lowStockCount || 0)}</p>
+                                    <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors">
+                                        Estoque abaixo de 20% do Ponto de Reposição
+                                    </p>
                                 </div>
                             </div>
                         </div>
 
                         {/* Expiring Card */}
-                        <div className="stat-card">
+                        <div
+                            className="stat-card cursor-pointer hover:bg-white/10 transition-all"
+                            onClick={() => navigate('/products?filter=expiring')}
+                        >
                             <div className="flex items-center gap-3">
                                 <div className="p-3 rounded-xl bg-red-500/20">
                                     <Calendar className="w-5 h-5 text-red-400" />

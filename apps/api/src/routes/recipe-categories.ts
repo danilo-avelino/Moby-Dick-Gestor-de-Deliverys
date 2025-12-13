@@ -63,7 +63,12 @@ export async function recipeCategoriesRoutes(app: FastifyInstance) {
     // Delete category
     app.delete('/:id', async (req, reply) => {
         const { id } = req.params as { id: string };
-        const { restaurantId } = req.user!;
+        const { restaurantId, role } = req.user!;
+
+        // Only DIRETOR can delete categories
+        if (role !== 'DIRETOR' && role !== 'SUPER_ADMIN') {
+            return reply.status(403).send({ message: 'Apenas Diretores podem excluir categorias.' });
+        }
 
         // Check ownership
         const cat = await prisma.recipeCategory.findFirst({

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { Printer, X, Search, Filter, Calendar, MessageSquare, CheckCircle } from 'lucide-react';
@@ -155,7 +155,6 @@ export default function ManagerRequests() {
 
 function DetailModal({ requestId, onClose, userRole }: any) {
     const queryClient = useQueryClient();
-    const printRef = useRef<HTMLDivElement>(null);
     const [comment, setComment] = useState('');
     const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
@@ -245,12 +244,10 @@ function DetailModal({ requestId, onClose, userRole }: any) {
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
-                        {request.status === 'APPROVED' && (
-                            <button onClick={handlePrint} className="btn-ghost flex items-center gap-2">
-                                <Printer className="w-5 h-5" />
-                                Imprimir
-                            </button>
-                        )}
+                        <button onClick={handlePrint} className="btn-ghost flex items-center gap-2">
+                            <Printer className="w-5 h-5" />
+                            Imprimir
+                        </button>
                         <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                             <X className="w-6 h-6 text-gray-400" />
                         </button>
@@ -258,86 +255,156 @@ function DetailModal({ requestId, onClose, userRole }: any) {
                 </div>
 
                 <div className="flex-1 flex overflow-hidden">
-                    {/* Main Content (Items Printable) */}
-                    <div className="flex-1 p-6 overflow-y-auto border-r border-white/10 bg-black/20">
-                        <div ref={printRef} className="print-content">
-                            {/* Hidden Print Header */}
-                            <div className="hidden print:block mb-8 border-b pb-4">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h1 className="text-3xl font-bold">Requisição de Estoque</h1>
-                                    <span className="text-xl font-mono border px-2 py-1">{request.code}</span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <p><strong>Solicitante:</strong> {request.createdBy?.firstName} {request.createdBy?.lastName}</p>
-                                    <p><strong>Data Solicitação:</strong> {formatDate(request.createdAt)}</p>
-                                    <p><strong>Aprovado por:</strong> {request.approvedBy ? `${request.approvedBy.firstName} ${request.approvedBy.lastName}` : '-'}</p>
-                                    <p><strong>Data Aprovação:</strong> {request.approvedAt ? formatDate(request.approvedAt) : '-'}</p>
-                                </div>
-                            </div>
+                    {/* Main Content - Screen View */}
+                    <div className="flex-1 p-6 overflow-y-auto border-r border-white/10 bg-black/20 print:hidden">
+                        <table className="table w-full">
+                            <thead>
+                                <tr className="border-b border-white/10">
+                                    <th className="text-left text-gray-400 pb-3 font-medium">Produto</th>
+                                    <th className="text-right text-gray-400 pb-3 font-medium">Qtd. Solicitada</th>
+                                    {isPending && (
+                                        <th className="text-right text-gray-400 pb-3 font-medium w-32 bg-primary-500/10 rounded-t px-2">
+                                            Aprovar
+                                        </th>
+                                    )}
+                                    {!isPending && <th className="text-right text-gray-400 pb-3 font-medium">Qtd. Aprovada</th>}
+                                    {canSeeStock && <th className="text-right text-gray-400 pb-3 font-medium text-xs">Estoque Atual</th>}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {request.items.map((item: any) => (
+                                    <tr key={item.id} className="border-b border-white/5 last:border-0 hover:bg-white/5">
+                                        <td className="py-4">
+                                            <p className="font-medium text-white">{item.productNameSnapshot}</p>
+                                            {item.notes && <p className="text-xs text-yellow-400 mt-1">Obs: {item.notes}</p>}
+                                            {item.product?.sku && <p className="text-[10px] text-gray-500">SKU: {item.product.sku}</p>}
+                                        </td>
+                                        <td className="py-4 text-right text-gray-300">
+                                            {formatNumber(item.quantityRequested)} {item.unitSnapshot}
+                                        </td>
 
-                            <table className="table w-full">
-                                <thead>
-                                    <tr className="border-b border-white/10">
-                                        <th className="text-left text-gray-400 pb-3 font-medium">Produto</th>
-                                        <th className="text-right text-gray-400 pb-3 font-medium">Qtd. Solicitada</th>
-                                        {isPending && (
-                                            <th className="text-right text-gray-400 pb-3 font-medium w-32 bg-primary-500/10 rounded-t px-2">
-                                                Aprovar
-                                            </th>
+                                        {isPending ? (
+                                            <td className="py-4 bg-primary-500/5">
+                                                <input
+                                                    type="number"
+                                                    className="input text-right w-full h-8 font-bold text-green-400 border-primary-500/30 focus:border-primary-500"
+                                                    placeholder={item.quantityRequested.toString()}
+                                                    onChange={(e) => setApprovalData(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) }))}
+                                                    defaultValue={item.quantityRequested}
+                                                />
+                                            </td>
+                                        ) : (
+                                            <td className="py-4 text-right font-bold text-green-400">
+                                                {formatNumber(item.quantityApproved)} {item.unitSnapshot}
+                                            </td>
                                         )}
-                                        {!isPending && <th className="text-right text-gray-400 pb-3 font-medium">Qtd. Aprovada</th>}
-                                        {canSeeStock && <th className="text-right text-gray-400 pb-3 font-medium text-xs print:hidden">Estoque Atual</th>}
+
+                                        {canSeeStock && (
+                                            <td className="py-4 text-right text-xs text-gray-500 font-mono">
+                                                {item.product?.currentStock !== undefined ? formatNumber(item.product.currentStock) : '---'}
+                                            </td>
+                                        )}
                                     </tr>
-                                </thead>
-                                <tbody>
-                                    {request.items.map((item: any) => (
-                                        <tr key={item.id} className="border-b border-white/5 last:border-0 hover:bg-white/5">
-                                            <td className="py-4">
-                                                <p className="font-medium text-white print:text-black">{item.productNameSnapshot}</p>
-                                                {item.notes && <p className="text-xs text-yellow-400 mt-1 print:text-gray-600">Obs: {item.notes}</p>}
-                                                {item.product?.sku && <p className="text-[10px] text-gray-500 print:text-gray-500">SKU: {item.product.sku}</p>}
-                                            </td>
-                                            <td className="py-4 text-right text-gray-300 print:text-black">
-                                                {formatNumber(item.quantityRequested)} {item.unitSnapshot}
-                                            </td>
+                                ))}
+                            </tbody>
+                        </table>
 
-                                            {isPending ? (
-                                                <td className="py-4 bg-primary-500/5">
-                                                    <input
-                                                        type="number"
-                                                        className="input text-right w-full h-8 font-bold text-green-400 border-primary-500/30 focus:border-primary-500"
-                                                        placeholder={item.quantityRequested.toString()}
-                                                        onChange={(e) => setApprovalData(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) }))}
-                                                        defaultValue={item.quantityRequested}
-                                                    />
-                                                </td>
-                                            ) : (
-                                                <td className="py-4 text-right font-bold text-green-400 print:text-black">
-                                                    {formatNumber(item.quantityApproved)} {item.unitSnapshot}
-                                                </td>
-                                            )}
+                        {request.chefObservation && (
+                            <div className="mt-8 bg-white/5 p-4 rounded border-l-4 border-amber-500">
+                                <h4 className="font-bold text-amber-500 text-sm mb-1 uppercase tracking-wider">Observação do Chef</h4>
+                                <p className="text-white text-sm">{request.chefObservation}</p>
+                            </div>
+                        )}
+                    </div>
 
-                                            {canSeeStock && (
-                                                <td className="py-4 text-right text-xs text-gray-500 font-mono print:hidden">
-                                                    {item.product?.currentStock !== undefined ? formatNumber(item.product.currentStock) : '---'}
-                                                </td>
-                                            )}
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-
-                            {request.chefObservation && (
-                                <div className="mt-8 bg-white/5 p-4 rounded border-l-4 border-amber-500 print:border-gray-400 print:bg-gray-100">
-                                    <h4 className="font-bold text-amber-500 text-sm mb-1 uppercase tracking-wider print:text-black">Observação do Chef</h4>
-                                    <p className="text-white text-sm print:text-black">{request.chefObservation}</p>
+                    {/* ================================================== */}
+                    {/* THERMAL PRINT CONTAINER - Elgin i8 Optimized */}
+                    {/* Hidden on screen, visible only during print */}
+                    {/* ================================================== */}
+                    <div id="thermal-request-print">
+                        {/* Header - Centered */}
+                        <div className="thermal-header">
+                            <div className="thermal-restaurant">MOBY DICK</div>
+                            <div className="thermal-title">REQUISIÇÃO DE ESTOQUE</div>
+                            <div className="thermal-divider">================================</div>
+                            <div className="thermal-info">
+                                <div className="thermal-row">
+                                    <span className="thermal-label">Data:</span>
+                                    <span>{formatDate(request.createdAt)}</span>
                                 </div>
+                                <div className="thermal-row">
+                                    <span className="thermal-label">Turno:</span>
+                                    <span>{request.shift === 'DAY' ? 'DIA' : request.shift === 'NIGHT' ? 'NOITE' : '-'}</span>
+                                </div>
+                                {request.createdBy?.restaurant?.name && (
+                                    <div className="thermal-row">
+                                        <span className="thermal-label">Setor:</span>
+                                        <span>{request.createdBy.restaurant.name}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Items List */}
+                        <div className="thermal-items">
+                            <div className="thermal-items-header">
+                                <span className="thermal-col-qty">QTD</span>
+                                <span className="thermal-col-unit">UND</span>
+                                <span className="thermal-col-name">PRODUTO</span>
+                            </div>
+                            <div className="thermal-divider-light">--------------------------------</div>
+
+                            {request.items.map((item: any) => (
+                                <div key={item.id} className="thermal-item">
+                                    <div className="thermal-item-line">
+                                        <span className="thermal-col-qty">
+                                            {formatNumber(item.quantityApproved ?? item.quantityRequested)}
+                                        </span>
+                                        <span className="thermal-col-unit">{item.unitSnapshot}</span>
+                                        <span className="thermal-col-name">{item.productNameSnapshot}</span>
+                                    </div>
+                                    {item.notes && (
+                                        <div className="thermal-item-obs">
+                                            Obs: {item.notes}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="thermal-divider">--------------------------------</div>
+
+                        {/* Chef Observation */}
+                        {request.chefObservation && (
+                            <div className="thermal-chef-obs">
+                                <div className="thermal-label">OBS. CHEF:</div>
+                                <div>{request.chefObservation}</div>
+                                <div className="thermal-divider-light">--------------------------------</div>
+                            </div>
+                        )}
+
+                        {/* Footer */}
+                        <div className="thermal-footer">
+                            <div className="thermal-row">
+                                <span className="thermal-label">Solicitante:</span>
+                            </div>
+                            <div>{request.createdBy?.firstName} {request.createdBy?.lastName}</div>
+
+                            {request.approvedBy && (
+                                <>
+                                    <div className="thermal-spacer"></div>
+                                    <div className="thermal-row">
+                                        <span className="thermal-label">Aprovado por:</span>
+                                    </div>
+                                    <div>{request.approvedBy.firstName} {request.approvedBy.lastName}</div>
+                                </>
                             )}
                         </div>
                     </div>
+                    {/* END THERMAL PRINT CONTAINER */}
 
                     {/* Sidebar (Comments & Actions) - Hidden on Print */}
-                    <div className="w-96 flex flex-col bg-gray-900 border-l border-white/10 print:hidden">
+                    <div className="w-96 flex flex-col bg-gray-900 border-l border-white/10 screen-only">
                         {/* Actions Panel */}
                         {isPending && (
                             <div className="p-6 border-b border-white/10 bg-primary-500/5">
@@ -412,34 +479,221 @@ function DetailModal({ requestId, onClose, userRole }: any) {
                     </div>
                 </div>
             </div>
+
+            {/* ================================================== */}
+            {/* ELGIN i8 THERMAL PRINT STYLES */}
+            {/* Printer: Elgin i8 - Paper: 80mm (79.5mm ± 0.5mm) */}
+            {/* Resolution: 203 dpi - ESC/POS compatible */}
+            {/* ================================================== */}
             <style>{`
+                /* ========================================
+                   SCREEN STYLES - Hide thermal container
+                   ======================================== */
+                #thermal-request-print {
+                    display: none;
+                }
+
+                /* ========================================
+                   PRINT STYLES - Elgin i8 Thermal Printer
+                   Paper: 80mm, Printable area: ~72mm
+                   ======================================== */
                 @media print {
-                    @page { margin: 1cm; size: A4; }
-                    body { background: white; color: black; }
+                    /* Page setup for 80mm thermal paper */
+                    @page {
+                        size: 80mm auto;
+                        margin: 0;
+                    }
+
+                    /* Reset body for thermal print */
+                    html, body {
+                        width: 80mm !important;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        background: white !important;
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
+
+                    /* Hide EVERYTHING on the page */
                     body * {
                         visibility: hidden;
                     }
-                    .print-content, .print-content * {
-                        visibility: visible;
+
+                    /* Show ONLY the thermal print container */
+                    #thermal-request-print,
+                    #thermal-request-print * {
+                        visibility: visible !important;
                     }
-                    .print-content {
-                        position: fixed;
-                        left: 0;
-                        top: 0;
-                        width: 100%;
-                        height: 100%;
+
+                    #thermal-request-print {
+                        display: block !important;
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 72mm !important;
+                        max-width: 72mm !important;
+                        margin: 0 auto !important;
+                        padding: 2mm !important;
+                        background: white !important;
                         color: black !important;
-                        background: white;
-                        padding: 20px;
-                        overflow: visible;
-                        
+                        font-family: 'Courier New', Courier, monospace !important;
+                        font-size: 10pt !important;
+                        line-height: 1.3 !important;
                     }
-                    .print-content table { width: 100%; border-collapse: collapse; }
-                    .print-content th { border-bottom: 2px solid #ddd; text-align: left; }
-                    .print-content td { border-bottom: 1px solid #eee; }
-                    .print-content p, .print-content h1, .print-content h2, .print-content h4 { color: black !important; }
-                    .glass-card { box-shadow: none; border: none; background: white; }
+
+                    /* Hide screen-only elements */
+                    .screen-only {
+                        display: none !important;
+                    }
+
+                    /* ===== HEADER STYLES ===== */
+                    .thermal-restaurant {
+                        text-align: center !important;
+                        font-size: 14pt !important;
+                        font-weight: bold !important;
+                        margin-bottom: 2mm !important;
+                    }
+
+                    .thermal-title {
+                        text-align: center !important;
+                        font-size: 11pt !important;
+                        font-weight: bold !important;
+                        margin-bottom: 2mm !important;
+                    }
+
+                    .thermal-divider {
+                        text-align: center !important;
+                        font-size: 9pt !important;
+                        margin: 2mm 0 !important;
+                        letter-spacing: -0.5px !important;
+                    }
+
+                    .thermal-divider-light {
+                        text-align: center !important;
+                        font-size: 8pt !important;
+                        color: #444 !important;
+                        margin: 1mm 0 !important;
+                        letter-spacing: -0.5px !important;
+                    }
+
+                    .thermal-info {
+                        margin: 2mm 0 !important;
+                    }
+
+                    .thermal-row {
+                        display: block !important;
+                        margin: 0.5mm 0 !important;
+                        font-size: 10pt !important;
+                    }
+
+                    .thermal-label {
+                        font-weight: bold !important;
+                    }
+
+                    /* ===== ITEMS LIST STYLES ===== */
+                    .thermal-items {
+                        margin: 2mm 0 !important;
+                    }
+
+                    .thermal-items-header {
+                        display: flex !important;
+                        font-weight: bold !important;
+                        font-size: 9pt !important;
+                        padding-bottom: 1mm !important;
+                        border-bottom: 1px dashed #000 !important;
+                    }
+
+                    .thermal-item {
+                        margin: 1.5mm 0 !important;
+                        page-break-inside: avoid !important;
+                    }
+
+                    .thermal-item-line {
+                        display: flex !important;
+                        font-size: 10pt !important;
+                    }
+
+                    .thermal-col-qty {
+                        width: 10mm !important;
+                        min-width: 10mm !important;
+                        text-align: right !important;
+                        padding-right: 2mm !important;
+                        flex-shrink: 0 !important;
+                    }
+
+                    .thermal-col-unit {
+                        width: 12mm !important;
+                        min-width: 12mm !important;
+                        text-align: center !important;
+                        flex-shrink: 0 !important;
+                    }
+
+                    .thermal-col-name {
+                        flex: 1 !important;
+                        text-align: left !important;
+                        word-wrap: break-word !important;
+                        overflow-wrap: break-word !important;
+                    }
+
+                    .thermal-item-obs {
+                        font-size: 8pt !important;
+                        font-style: italic !important;
+                        margin-left: 22mm !important;
+                        margin-top: 0.5mm !important;
+                        color: #333 !important;
+                    }
+
+                    /* ===== CHEF OBSERVATION ===== */
+                    .thermal-chef-obs {
+                        margin: 2mm 0 !important;
+                        font-size: 9pt !important;
+                    }
+
+                    /* ===== FOOTER STYLES ===== */
+                    .thermal-footer {
+                        margin-top: 3mm !important;
+                        font-size: 9pt !important;
+                    }
+
+                    .thermal-spacer {
+                        height: 3mm !important;
+                    }
+
+                    .thermal-signatures {
+                        margin: 4mm 0 !important;
+                        font-size: 9pt !important;
+                    }
+
+                    .thermal-signatures > div {
+                        margin: 3mm 0 !important;
+                    }
+
+                    .thermal-timestamp {
+                        text-align: center !important;
+                        font-size: 8pt !important;
+                        color: #666 !important;
+                        margin-top: 2mm !important;
+                    }
                 }
+
+                /*
+                 * ================================================
+                 * TODO: FUTURA INTEGRAÇÃO ESC/POS (Elgin i8)
+                 * ================================================
+                 * A Elgin i8 suporta comandos ESC/POS nativamente.
+                 * Para impressão direta via ESC/POS (sem driver de impressora):
+                 * 
+                 * 1. Usar biblioteca como 'escpos' ou 'node-thermal-printer'
+                 * 2. Conectar via USB, Serial ou Rede (Ethernet/Wi-Fi)
+                 * 3. Enviar comandos binários diretamente à impressora
+                 * 
+                 * Configuração típica Elgin i8 ESC/POS:
+                 * - Largura de linha: 42-48 caracteres (fonte padrão)
+                 * - Comandos: ESC @ (reset), ESC a (alinhamento), etc.
+                 * 
+                 * Esta implementação atual usa HTML+CSS via driver do SO.
+                 * ================================================
+                 */
             `}</style>
 
             {/* Reject Modal */}

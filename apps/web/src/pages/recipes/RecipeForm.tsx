@@ -8,6 +8,7 @@ import {
     Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuthStore } from '../../stores/auth';
 
 interface Ingredient {
     id?: string;
@@ -43,6 +44,8 @@ export default function RecipeForm() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
+    const { user } = useAuthStore();
+    const isDiretor = user?.role === 'DIRETOR' || user?.role === 'SUPER_ADMIN';
     const isEdit = !!id;
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,8 +64,6 @@ export default function RecipeForm() {
     const [instructions, setInstructions] = useState('');
     const [currentPrice, setCurrentPrice] = useState<number | undefined>();
     const [packagingCost, setPackagingCost] = useState(0);
-    const [laborCost, setLaborCost] = useState(0);
-    const [overheadPercent, setOverheadPercent] = useState(0);
     const [ingredients, setIngredients] = useState<Ingredient[]>([]);
 
     // AI state
@@ -129,8 +130,6 @@ export default function RecipeForm() {
             setInstructions(recipe.instructions || '');
             setCurrentPrice(recipe.currentPrice);
             setPackagingCost(recipe.packagingCost || 0);
-            setLaborCost(recipe.laborCost || 0);
-            setOverheadPercent(recipe.overheadPercent || 0);
             setIngredients(recipe.ingredients?.map((i: any) => ({
                 id: i.id,
                 ingredientType: i.ingredientType,
@@ -176,6 +175,21 @@ export default function RecipeForm() {
         onError: () => toast.error('Erro ao salvar receita'),
     });
 
+    // Delete mutation
+    const deleteMutation = useMutation({
+        mutationFn: async () => {
+            return api.delete(`/api/recipes/${id}`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['recipes'] });
+            toast.success('Ficha técnica excluída!');
+            navigate('/recipes');
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.message || 'Erro ao excluir ficha técnica');
+        },
+    });
+
     // AI Generation mutation
     const aiGenerateMutation = useMutation({
         mutationFn: async (data: { text?: string; images?: string[]; audioTranscript?: string; targetCMV: number }) => {
@@ -208,10 +222,10 @@ export default function RecipeForm() {
         },
     });
 
-    // Calculate total cost
+    // Calculate total cost (ingredients only, without labor/overhead)
     const calculateTotalCost = useCallback(() => {
         let total = 0;
-        for (const ing of ingredients) {
+        for (const ing of (ingredients || [])) {
             if (ing.productId) {
                 const product = products.find((p: any) => p.id === ing.productId);
                 if (product) {
@@ -221,8 +235,8 @@ export default function RecipeForm() {
                 total += ing.estimatedCost;
             }
         }
-        return total * (1 + overheadPercent / 100) + laborCost + packagingCost;
-    }, [ingredients, products, overheadPercent, laborCost, packagingCost]);
+        return total + packagingCost;
+    }, [ingredients, products, packagingCost]);
 
     const totalCost = calculateTotalCost();
     const costPerUnit = yieldQuantity > 0 ? totalCost / yieldQuantity : 0;
@@ -426,9 +440,9 @@ export default function RecipeForm() {
             instructions,
             currentPrice,
             packagingCost,
-            laborCost,
-            overheadPercent,
-            ingredients: ingredients.map((ing) => ({
+            laborCost: 0,
+            overheadPercent: 0,
+            ingredients: (ingredients || []).map((ing) => ({
                 ingredientType: ing.ingredientType,
                 productId: ing.productId || undefined,
                 subRecipeId: ing.subRecipeId || undefined,
@@ -900,7 +914,7 @@ export default function RecipeForm() {
                         Custos e Precificação
                     </h3>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="grid grid-cols-1 gap-4 mb-6">
                         <div>
                             <label className="label">Custo de Embalagem (R$)</label>
                             <input
@@ -910,28 +924,6 @@ export default function RecipeForm() {
                                 className="input"
                                 min="0"
                                 step="0.01"
-                            />
-                        </div>
-                        <div>
-                            <label className="label">Custo de Mão de Obra (R$)</label>
-                            <input
-                                type="number"
-                                value={laborCost}
-                                onChange={(e) => setLaborCost(Number(e.target.value))}
-                                className="input"
-                                min="0"
-                                step="0.01"
-                            />
-                        </div>
-                        <div>
-                            <label className="label">Overhead (%)</label>
-                            <input
-                                type="number"
-                                value={overheadPercent}
-                                onChange={(e) => setOverheadPercent(Number(e.target.value))}
-                                className="input"
-                                min="0"
-                                max="100"
                             />
                         </div>
                     </div>
@@ -1001,23 +993,48 @@ export default function RecipeForm() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-end gap-3">
-                    <button type="button" onClick={() => navigate(-1)} className="btn btn-secondary">
-                        Cancelar
-                    </button>
-                    <button type="submit" disabled={saveMutation.isPending} className="btn btn-primary">
-                        {saveMutation.isPending ? (
-                            <>
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                                Salvando...
-                            </>
-                        ) : (
-                            <>
-                                <Check className="w-5 h-5" />
-                                {isEdit ? 'Atualizar' : 'Criar'} Receita
-                            </>
+                <div className="flex items-center justify-between gap-3">
+                    <div>
+                        {isEdit && isDiretor && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (confirm('Tem certeza que deseja excluir esta ficha técnica? Esta ação não poderá ser desfeita.')) {
+                                        deleteMutation.mutate();
+                                    }
+                                }}
+                                disabled={deleteMutation.isPending}
+                                className="btn bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30"
+                            >
+                                {deleteMutation.isPending ? (
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                ) : (
+                                    <>
+                                        <Trash2 className="w-5 h-5" />
+                                        Excluir Ficha
+                                    </>
+                                )}
+                            </button>
                         )}
-                    </button>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => navigate(-1)} className="btn btn-secondary">
+                            Cancelar
+                        </button>
+                        <button type="submit" disabled={saveMutation.isPending} className="btn btn-primary">
+                            {saveMutation.isPending ? (
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    Salvando...
+                                </>
+                            ) : (
+                                <>
+                                    <Check className="w-5 h-5" />
+                                    {isEdit ? 'Atualizar' : 'Criar'} Receita
+                                </>
+                            )}
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>

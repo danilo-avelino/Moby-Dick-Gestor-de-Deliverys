@@ -62,6 +62,17 @@ model User {
   approvedRequests  StockRequest[]  @relation("ApprovedRequests")
   requestComments   StockRequestComment[]
   requestTemplates  StockRequestTemplate[]
+  
+  // PDV Relations
+  pdvOrdersCreated      PdvOrder[]           @relation("PdvOrderCreator")
+  statusChanges         PdvOrderStatusHistory[] @relation("StatusChanges")
+  cashSessionsOpened    CashSession[]        @relation("CashSessionOpener")
+  cashSessionsClosed    CashSession[]        @relation("CashSessionCloser")
+  cashMovements         CashMovement[]       @relation("CashMovements")
+  
+  // Purchase List Relations
+  purchaseListsCreated      PurchaseList[]       @relation("PurchaseListCreator")
+  purchaseListItemsConfirmed PurchaseListItem[]  @relation("PurchaseListItemConfirmer")
 
   @@index([email])
   @@index([restaurantId])
@@ -143,6 +154,16 @@ model Restaurant {
   recipeCategories RecipeCategory[]
   stockRequests    StockRequest[]
   stockRequestTemplates StockRequestTemplate[]
+  
+  // PDV Relations
+  customers       Customer[]
+  tables          RestaurantTable[]
+  pdvOrders       PdvOrder[]      @relation("PdvOrders")
+  cashSessions    CashSession[]
+  
+  // Purchase List Relations
+  purchaseLists   PurchaseList[]
+  purchaseConfig  PurchaseConfig?
   
   @@index([cnpj])
 }
@@ -391,6 +412,7 @@ model Product {
   recipesAsOutput   Recipe[] @relation("RecipeOutput")
   stockRequestItems StockRequestItem[]
   stockRequestTemplateItems StockRequestTemplateItem[]
+  purchaseListItems PurchaseListItem[]
   
   @@unique([restaurantId, sku])
   @@unique([restaurantId, barcode])
@@ -1290,6 +1312,8 @@ model StockRequest {
   restaurantId      String
   restaurant        Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
 
+  shift             WorkShift           @default(DAY)
+
   createdByUserId   String
   createdBy         User                @relation("CreatedRequests", fields: [createdByUserId], references: [id], onDelete: Cascade)
 
@@ -1380,4 +1404,492 @@ model StockRequestTemplateItem {
   standardQuantity  Float                @default(0)
 
   @@unique([templateId, productId])
+}
+
+// ==========================================
+// PDV SYSTEM (Point of Sale)
+// ==========================================
+
+enum PdvOrderType {
+  DELIVERY
+  RETIRADA
+  SALAO
+}
+
+enum PdvOrderStatus {
+  NOVO
+  EM_PREPARO
+  PRONTO
+  EM_ENTREGA
+  CONCLUIDO
+  CANCELADO
+}
+
+enum PdvSalesChannel {
+  PRESENCIAL
+  SITE
+  WHATSAPP
+  IFOOD
+  RAPPI
+  UBER_EATS
+  APP_PROPRIO
+}
+
+enum PaymentMethod {
+  DINHEIRO
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  PIX
+  VALE_REFEICAO
+  VALE_ALIMENTACAO
+  CORTESIA
+}
+
+enum CashMovementType {
+  VENDA
+  SANGRIA
+  SUPRIMENTO
+  AJUSTE
+}
+
+enum TableStatus {
+  LIVRE
+  OCUPADA
+  RESERVADA
+}
+
+enum PaymentStatus {
+  PENDENTE
+  PAGO
+  ESTORNADO
+}
+
+enum CashSessionStatus {
+  ABERTO
+  FECHADO
+}
+
+// Customer for PDV
+model Customer {
+  id              String            @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  name            String
+  phone           String?
+  email           String?
+  cpf             String?
+  notes           String?
+  
+  isActive        Boolean           @default(true)
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  addresses       CustomerAddress[]
+  orders          PdvOrder[]
+  
+  @@index([restaurantId])
+  @@index([phone])
+  @@index([name])
+}
+
+model CustomerAddress {
+  id              String      @id @default(cuid())
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  label           String?     // "Casa", "Trabalho", etc.
+  street          String
+  number          String?
+  complement      String?
+  neighborhood    String
+  city            String
+  state           String
+  zipCode         String
+  reference       String?     // Ponto de referência
+  
+  isDefault       Boolean     @default(false)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  orders          PdvOrder[]
+  
+  @@index([customerId])
+}
+
+// Tables for dine-in orders
+model RestaurantTable {
+  id              String        @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  identifier      String        // "Mesa 1", "Mesa 2", "Balcão 1", etc.
+  capacity        Int           @default(4)
+  status          TableStatus   @default(LIVRE)
+  
+  currentOrderId  String?       // Currently active order
+  
+  isActive        Boolean       @default(true)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  orders          PdvOrder[]
+  
+  @@unique([restaurantId, identifier])
+  @@index([restaurantId])
+  @@index([status])
+}
+
+// PDV Order
+model PdvOrder {
+  id                  String            @id @default(cuid())
+  code                String            // Friendly code like "001", "002"
+  restaurantId        String
+  restaurant          Restaurant        @relation("PdvOrders", fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  // Type and status
+  orderType           PdvOrderType
+  status              PdvOrderStatus    @default(NOVO)
+  salesChannel        PdvSalesChannel   @default(PRESENCIAL)
+  
+  // Customer (optional for quick sales)
+  customerId          String?
+  customer            Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName        String?           // Snapshot or manual input
+  customerPhone       String?
+  
+  // Delivery specific
+  addressId           String?
+  address             CustomerAddress?  @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  deliveryAddressText String?           // Full address text snapshot
+  deliveryFee         Float             @default(0)
+  
+  // Dine-in specific
+  tableId             String?
+  table               RestaurantTable?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableIdentifier     String?           // Snapshot
+  serviceFee          Float             @default(0)
+  serviceFeePercent   Float             @default(0)
+  
+  // Values
+  subtotal            Float             @default(0)
+  discount            Float             @default(0)
+  discountReason      String?
+  total               Float             @default(0)
+  
+  // Payment status
+  totalPaid           Float             @default(0)
+  changeAmount        Float             @default(0)
+  
+  // Notes
+  notes               String?
+  kitchenNotes        String?
+  
+  // Timing
+  estimatedReadyAt    DateTime?
+  readyAt             DateTime?
+  deliveredAt         DateTime?
+  
+  // Audit
+  createdByUserId     String?
+  createdBy           User?             @relation("PdvOrderCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  
+  // Relations
+  items               PdvOrderItem[]
+  payments            PdvPayment[]
+  statusHistory       PdvOrderStatusHistory[]
+  
+  @@unique([restaurantId, code])
+  @@index([restaurantId])
+  @@index([status])
+  @@index([orderType])
+  @@index([createdAt])
+  @@index([customerId])
+}
+
+model PdvOrderItem {
+  id                  String      @id @default(cuid())
+  orderId             String
+  order               PdvOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Product reference
+  productId           String?
+  recipeId            String?
+  
+  // Snapshots
+  productName         String
+  productSku          String?
+  
+  quantity            Float       @default(1)
+  unit                String      @default("un")
+  unitPrice           Float
+  totalPrice          Float
+  
+  // Customization
+  notes               String?     // "Sem cebola", "Bem passado", etc.
+  additionals         Json?       // [{ name, price }]
+  additionalsTotal    Float       @default(0)
+  
+  // Status
+  isPrinted           Boolean     @default(false)
+  isCancelled         Boolean     @default(false)
+  cancelReason        String?
+  
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  
+  @@index([orderId])
+  @@index([productId])
+}
+
+model PdvOrderStatusHistory {
+  id              String          @id @default(cuid())
+  orderId         String
+  order           PdvOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  fromStatus      PdvOrderStatus?
+  toStatus        PdvOrderStatus
+  
+  notes           String?
+  
+  changedById     String?
+  changedBy       User?           @relation("StatusChanges", fields: [changedById], references: [id], onDelete: SetNull)
+  
+  createdAt       DateTime        @default(now())
+  
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+model PdvPayment {
+  id                  String          @id @default(cuid())
+  orderId             String
+  order               PdvOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  method              PaymentMethod
+  status              PaymentStatus   @default(PENDENTE)
+  
+  amount              Float
+  receivedAmount      Float?          // For cash payments
+  changeAmount        Float           @default(0)
+  
+  // Card details (optional)
+  cardBrand           String?
+  cardLastDigits      String?
+  authorizationCode   String?
+  
+  // Cash session link
+  cashMovementId      String?
+  
+  notes               String?
+  
+  processedAt         DateTime?
+  createdAt           DateTime        @default(now())
+  
+  @@index([orderId])
+  @@index([method])
+}
+
+// Cash Session (Caixa)
+model CashSession {
+  id                  String            @id @default(cuid())
+  restaurantId        String
+  restaurant          Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  status              CashSessionStatus @default(ABERTO)
+  
+  // Opening
+  openedByUserId      String
+  openedBy            User              @relation("CashSessionOpener", fields: [openedByUserId], references: [id], onDelete: Cascade)
+  openedAt            DateTime          @default(now())
+  openingBalance      Float             @default(0)
+  
+  // Closing
+  closedByUserId      String?
+  closedBy            User?             @relation("CashSessionCloser", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  closedAt            DateTime?
+  closingBalance      Float?
+  
+  // Calculated values (updated on movements)
+  totalSales          Float             @default(0)
+  totalCashSales      Float             @default(0)
+  totalCardSales      Float             @default(0)
+  totalPixSales       Float             @default(0)
+  totalOtherSales     Float             @default(0)
+  totalSangrias       Float             @default(0)
+  totalSuprimentos    Float             @default(0)
+  
+  expectedBalance     Float             @default(0)
+  difference          Float?            // Actual - Expected (on close)
+  
+  notes               String?
+  
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  
+  // Relations
+  movements           CashMovement[]
+  
+  @@index([restaurantId])
+  @@index([status])
+  @@index([openedAt])
+}
+
+model CashMovement {
+  id                  String            @id @default(cuid())
+  cashSessionId       String
+  cashSession         CashSession       @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+  
+  type                CashMovementType
+  
+  description         String
+  amount              Float
+  
+  // Payment method (for sales)
+  paymentMethod       PaymentMethod?
+  
+  // Reference to order (for sales)
+  orderId             String?
+  orderCode           String?
+  
+  // Audit
+  userId              String
+  user                User              @relation("CashMovements", fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt           DateTime          @default(now())
+  
+  @@index([cashSessionId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ==========================================
+// PURCHASE LISTS (Lista de Compras)
+// ==========================================
+
+enum PurchaseFilterMode {
+  ALL
+  SUPPLIER
+  CATEGORY
+}
+
+enum PurchaseListTriggerType {
+  MANUAL
+  POS_INVENTARIO
+  ESTOQUE_CRITICO
+  DATA_FIXA
+}
+
+enum PurchaseListStatus {
+  ABERTA
+  EM_ANDAMENTO
+  CONCLUIDA
+  CANCELADA
+}
+
+enum PurchaseListItemStatus {
+  PENDENTE
+  CHEGOU
+  PARCIAL
+  CANCELADO
+}
+
+enum RecurrenceType {
+  NENHUM
+  SEMANAL
+  MENSAL
+}
+
+model PurchaseList {
+  id                String                  @id @default(cuid())
+  restaurantId      String
+  restaurant        Restaurant              @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  triggerType       PurchaseListTriggerType
+  description       String?
+  notes             String?
+  status            PurchaseListStatus      @default(ABERTA)
+  
+  createdById       String
+  createdBy         User                    @relation("PurchaseListCreator", fields: [createdById], references: [id])
+  
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  completedAt       DateTime?
+  
+  items             PurchaseListItem[]
+  
+  @@index([restaurantId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PurchaseListItem {
+  id                      String                    @id @default(cuid())
+  purchaseListId          String
+  purchaseList            PurchaseList              @relation(fields: [purchaseListId], references: [id], onDelete: Cascade)
+  
+  productId               String
+  product                 Product                   @relation(fields: [productId], references: [id])
+  
+  // Snapshots at generation time
+  productNameSnapshot     String
+  unitSnapshot            String
+  reorderPointSnapshot    Float
+  currentStockSnapshot    Float
+  
+  // Purchase quantities
+  suggestedQuantity       Float
+  confirmedQuantity       Float?
+  
+  // Status
+  status                  PurchaseListItemStatus    @default(PENDENTE)
+  
+  // Confirmation
+  confirmedAt             DateTime?
+  confirmedById           String?
+  confirmedBy             User?                     @relation("PurchaseListItemConfirmer", fields: [confirmedById], references: [id])
+  
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  
+  @@index([purchaseListId])
+  @@index([productId])
+  @@index([status])
+}
+
+model PurchaseConfig {
+  id                              String          @id @default(cuid())
+  restaurantId                    String          @unique
+  restaurant                      Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  
+  // Post-inventory trigger
+  triggerPostInventory            Boolean         @default(false)
+  
+  // Critical stock trigger
+  triggerCriticalStock            Boolean         @default(false)
+  criticalStockPercentage         Float           @default(20)
+  
+  // Fixed dates trigger
+  triggerFixedDates               Boolean         @default(false)
+  recurrenceType                  RecurrenceType  @default(NENHUM)
+  weekDays                        Int[]           @default([])
+  monthDays                       Int[]           @default([])
+
+  // Filter Config
+  filterMode                      PurchaseFilterMode @default(ALL)
+  filterSupplierIds               String[]           @default([])
+  filterCategoryIds               String[]           @default([])
+  
+  createdAt                       DateTime        @default(now())
+  updatedAt                       DateTime        @updatedAt
 }

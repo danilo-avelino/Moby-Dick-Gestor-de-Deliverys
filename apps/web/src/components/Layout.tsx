@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/auth';
 import {
     LayoutDashboard, Package, Warehouse, TrendingUp, PieChart, BookOpen,
     Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
-    MessageSquare, ClipboardList, ClipboardCheck, Apple, Users
+    MessageSquare, ClipboardList, ClipboardCheck, Apple, Users, ShoppingBag, CreditCard, History
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn, getInitials } from '../lib/utils';
@@ -12,7 +12,8 @@ import { api } from '../lib/api';
 import { useQuery } from '@tanstack/react-query';
 
 const navigation = [
-    { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'PDV', href: '/pdv', icon: ShoppingBag, roles: ['DIRETOR', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     { name: 'Produtos', href: '/products', icon: Package, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     { name: 'Estoque', href: '/stock', icon: Warehouse, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'], end: true },
     { name: 'Requisição (Chef)', href: '/stock/my-requests', icon: ClipboardList, roles: ['CHEF_DE_COZINHA'] },
@@ -24,7 +25,7 @@ const navigation = [
     { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: ['DIRETOR', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     { name: 'Metas', href: '/goals', icon: Target, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     { name: 'Integrações', href: '/integrations', icon: Plug, roles: ['DIRETOR', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Compras IA', href: '/purchases', icon: ShoppingCart, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
+    { name: 'Lista de compras', href: '/purchases', icon: ShoppingCart, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     { name: 'NPS', href: '/nps', icon: MessageSquare, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
     { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: ['DIRETOR', 'SUPER_ADMIN'] },
 ];
@@ -79,8 +80,8 @@ export default function Layout() {
                     {/* Logo */}
                     <div className="flex items-center justify-between h-16 px-6 border-b border-white/5">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/10">
-                                <img src="/moby-dick-logo.png" alt="Moby Dick Logo" className="w-10 h-10 object-contain" style={{ filter: 'drop-shadow(0 0 0 transparent)', background: 'white', borderRadius: '0.75rem', padding: '2px' }} />
+                            <div className="w-12 h-12 rounded-xl flex items-center justify-center">
+                                <img src="/moby-dick-logo.png" alt="Moby Dick Logo" className="w-12 h-12 object-contain" />
                             </div>
                             <div>
                                 <h1 className="font-bold text-white">Moby Dick</h1>

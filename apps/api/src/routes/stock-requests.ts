@@ -8,6 +8,7 @@ import { UserRole, ApiResponse } from 'types';
 // --- Schemas ---
 
 const createRequestSchema = z.object({
+    shift: z.enum(['DAY', 'NIGHT'], { required_error: 'O turno é obrigatório' }),
     chefObservation: z.string().optional(),
     items: z.array(z.object({
         productId: z.string(),
@@ -104,7 +105,7 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                                 name: true,
                                 sku: true,
                                 baseUnit: true,
-                                currentStock: true, // Conditionally masked below
+                                currentStock: true,
                                 reorderPoint: true,
                             }
                         }
@@ -116,7 +117,7 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                     },
                     orderBy: { createdAt: 'desc' }
                 },
-                createdBy: { select: { id: true, firstName: true, lastName: true, role: true } },
+                createdBy: { select: { id: true, firstName: true, lastName: true, role: true, restaurant: { select: { name: true } } } },
                 approvedBy: { select: { id: true, firstName: true, lastName: true, role: true } },
             }
         });
@@ -187,6 +188,7 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                 code,
                 restaurantId: restaurantId!,
                 createdByUserId: userId,
+                shift: body.shift,
                 chefObservation: body.chefObservation,
                 status: 'PENDING',
                 items: {
@@ -224,9 +226,6 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const { id } = request.params;
         const { role, restaurantId, id: userId } = request.user!;
-
-        // Check permissions: Only creator (Chef) or Managers can update
-        // We will assume simpler rule: Only creator can update
 
         const existingRequest = await prisma.stockRequest.findUnique({
             where: { id },
@@ -268,17 +267,14 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
 
         // Transactional Update
         await prisma.$transaction(async (tx) => {
-            // 1. Delete existing items
             await tx.stockRequestItem.deleteMany({
                 where: { stockRequestId: id }
             });
 
-            // 2. Update Header
             await tx.stockRequest.update({
                 where: { id },
                 data: {
                     chefObservation: body.chefObservation,
-                    // 3. Re-create items
                     items: {
                         create: body.items.map(item => {
                             const product = productMap.get(item.productId)!;
@@ -338,7 +334,6 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
             // Validate and Deduct Stock
             for (const item of stockRequest.items) {
                 const approvedItem = body.items.find(i => i.itemId === item.id);
-                // "Se quantidade aprovada não for informada, usar a quantidade solicitada."
                 const quantityToApprove = approvedItem ? approvedItem.quantityApproved : item.quantityRequested;
 
                 if (quantityToApprove <= 0) continue;
@@ -355,20 +350,17 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                     throw errors.badRequest(msg);
                 }
 
-                // 1. Update Request Item status
                 await tx.stockRequestItem.update({
                     where: { id: item.id },
                     data: { quantityApproved: quantityToApprove }
                 });
 
-                // 2. Update Product Stock
                 const newStock = product.currentStock - quantityToApprove;
                 await tx.product.update({
                     where: { id: product.id },
                     data: { currentStock: newStock }
                 });
 
-                // 3. Register Movement
                 await tx.stockMovement.create({
                     data: {
                         productId: product.id,
@@ -386,7 +378,6 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                 });
             }
 
-            // Complete Request
             await tx.stockRequest.update({
                 where: { id },
                 data: {
@@ -429,29 +420,28 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
             throw errors.badRequest('Esta requisição já foi processada');
         }
 
-        await prisma.$transaction([
-            // Update Status
-            prisma.stockRequest.update({
+        await prisma.$transaction(async (tx) => {
+            await tx.stockRequestComment.create({
+                data: {
+                    stockRequestId: id,
+                    userId: userId,
+                    message: `REJEITADO: ${body.reason}`,
+                }
+            });
+
+            await tx.stockRequest.update({
                 where: { id },
                 data: {
                     status: 'REJECTED',
-                    approvedAt: new Date(),
-                    approvedByUserId: userId,
+                    rejectedAt: new Date(),
+                    rejectedByUserId: userId,
                 }
-            }),
-            // Add Reason as Comment
-            prisma.stockRequestComment.create({
-                data: {
-                    stockRequestId: id,
-                    userId,
-                    message: `REJEITADO: ${body.reason}`,
-                }
-            })
-        ]);
+            });
+        });
 
         const response: ApiResponse = {
             success: true,
-            data: { message: 'Requisição rejeitada com sucesso' },
+            data: { message: 'Requisição rejeitada' },
         };
 
         return reply.send(response);
@@ -465,20 +455,18 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
         const { id: userId, restaurantId } = request.user!;
         const body = commentSchema.parse(request.body);
 
-        if (!restaurantId) throw errors.forbidden('Restaurante não identificado');
-
-        const stockRequest = await prisma.stockRequest.findFirst({
-            where: { id, restaurantId },
+        const stockRequest = await prisma.stockRequest.findUnique({
+            where: { id },
         });
 
-        if (!stockRequest) {
+        if (!stockRequest || stockRequest.restaurantId !== restaurantId) {
             throw errors.notFound('Requisição não encontrada');
         }
 
         const comment = await prisma.stockRequestComment.create({
             data: {
                 stockRequestId: id,
-                userId,
+                userId: userId,
                 message: body.message,
             },
             include: {
@@ -491,19 +479,10 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
             data: comment,
         };
 
-        return reply.status(201).send(response);
+        return reply.send(response);
     });
 
-    const templateSchema = z.object({
-        name: z.string().optional(),
-        shift: z.enum(['DAY', 'NIGHT']).optional(),
-        items: z.array(z.object({
-            productId: z.string(),
-            quantity: z.number().optional(),
-        })),
-    });
-
-    // GET /template - Get Chef's Template
+    // GET /template - Get Template
     fastify.get<{ Querystring: { shift?: 'DAY' | 'NIGHT' } }>('/template', {
         preHandler: [requireRestaurant],
     }, async (request, reply) => {
@@ -516,7 +495,7 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
             where: {
                 restaurantId,
                 createdByUserId: userId,
-                ...(shift ? { shift } : {}), // If shift specified, filter by it. Else, might return any?
+                ...(shift ? { shift } : {}),
             },
             include: {
                 items: {
@@ -525,7 +504,7 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                     }
                 }
             },
-            orderBy: { updatedAt: 'desc' } // Get most recently used if no shift specified?
+            orderBy: { updatedAt: 'desc' }
         });
 
         const response: ApiResponse = {
@@ -536,7 +515,7 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
         return reply.send(response);
     });
 
-    // POST /template - Save/Update Chef's Template
+    // POST /template - Save Template
     fastify.post('/template', {
         preHandler: [requireRestaurant],
     }, async (request, reply) => {
@@ -545,22 +524,19 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
 
         if (!restaurantId) throw errors.forbidden('Restaurante não identificado');
 
-        const shift = body.shift || 'DAY'; // Default to DAY if not provided (migration safe)
+        const shift = body.shift || 'DAY';
 
-        // Find existing to update or create new
         const existing = await prisma.stockRequestTemplate.findFirst({
             where: {
                 restaurantId,
                 createdByUserId: userId,
-                shift, // Strict match on shift
+                shift,
             }
         });
 
         let template;
 
         if (existing) {
-            // Update items
-            // Transaction: Delete all items, re-create
             await prisma.$transaction(async (tx) => {
                 await tx.stockRequestTemplateItem.deleteMany({
                     where: { templateId: existing.id }
@@ -583,7 +559,6 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
                 });
             });
         } else {
-            // Create new
             template = await prisma.stockRequestTemplate.create({
                 data: {
                     restaurantId,

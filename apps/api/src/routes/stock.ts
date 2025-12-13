@@ -571,7 +571,11 @@ export async function stockRoutes(fastify: FastifyInstance) {
         });
 
         const totalValue = products.reduce((sum, p) => sum + (p.currentStock * p.avgCost), 0);
-        const lowStockCount = products.filter((p) => p.currentStock <= (p.reorderPoint || 0)).length;
+        const lowStockCount = products.filter((p) => {
+            const reorderPoint = p.reorderPoint || 0;
+            // Low stock: currentStock < 20% of reorderPoint, and reorderPoint must be > 0
+            return reorderPoint > 0 && p.currentStock < (reorderPoint * 0.2);
+        }).length;
         const outOfStockCount = products.filter((p) => p.currentStock <= 0).length;
 
         // Get recent movements

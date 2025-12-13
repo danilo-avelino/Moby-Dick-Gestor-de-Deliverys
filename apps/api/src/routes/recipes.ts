@@ -452,6 +452,13 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
+        const { role } = request.user!;
+
+        // Only DIRETOR can delete recipes
+        if (role !== 'DIRETOR' && role !== 'SUPER_ADMIN') {
+            return reply.status(403).send({ success: false, message: 'Apenas Diretores podem excluir fichas técnicas.' });
+        }
+
         const existing = await prisma.recipe.findFirst({
             where: {
                 id: request.params.id,

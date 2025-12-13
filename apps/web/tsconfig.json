@@ -12,6 +12,8 @@
         "moduleResolution": "bundler",
         "allowImportingTsExtensions": true,
         "noEmit": true,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
         "baseUrl": ".",
         "paths": {
             "@/*": [

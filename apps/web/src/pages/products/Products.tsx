@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { formatCurrency, formatNumber } from '../../lib/utils';
@@ -26,6 +26,8 @@ export default function Products() {
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [showCalibrationWarning, setShowCalibrationWarning] = useState(false);
     const [dismissedCalibrationWarning, setDismissedCalibrationWarning] = useState(false);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const filterParam = searchParams.get('filter'); // 'lowStock' | 'expiring' | null
 
     // Check if system is in calibration period (first 90 days)
     useEffect(() => {
@@ -129,7 +131,24 @@ export default function Products() {
 
     const products = productsData?.data?.data || [];
     const isLoading = isLoadingProducts;
-    const filteredProducts = products;
+
+    // Filter products based on URL parameter
+    const filteredProducts = products.filter((product: any) => {
+        if (filterParam === 'lowStock') {
+            // Low stock: currentStock < 20% of reorderPoint, and reorderPoint must be > 0
+            const reorderPoint = product.reorderPoint || 0;
+            return reorderPoint > 0 && product.currentStock < (reorderPoint * 0.2);
+        }
+        if (filterParam === 'expiring') {
+            // Filter perishable products (for now showing all perishable, can be enhanced with actual expiration dates)
+            return product.isPerishable;
+        }
+        return true;
+    });
+
+    const clearFilter = () => {
+        setSearchParams({});
+    };
 
 
 
@@ -193,6 +212,43 @@ export default function Products() {
                     ))}
                 </select>
             </div>
+
+            {/* Active Filter Banner */}
+            {filterParam && (
+                <div className={`rounded-xl p-4 flex items-center justify-between ${filterParam === 'lowStock'
+                    ? 'bg-yellow-500/10 border border-yellow-500/30'
+                    : 'bg-red-500/10 border border-red-500/30'
+                    }`}>
+                    <div className="flex items-center gap-3">
+                        {filterParam === 'lowStock' ? (
+                            <AlertTriangle className="w-5 h-5 text-yellow-400" />
+                        ) : (
+                            <Calendar className="w-5 h-5 text-red-400" />
+                        )}
+                        <div>
+                            <p className={`font-medium text-sm ${filterParam === 'lowStock' ? 'text-yellow-200' : 'text-red-200'
+                                }`}>
+                                {filterParam === 'lowStock'
+                                    ? `Exibindo Produtos com Estoque Baixo (${filteredProducts.length})`
+                                    : `Exibindo Produtos Perecíveis (${filteredProducts.length})`}
+                            </p>
+                            <p className={`text-xs ${filterParam === 'lowStock' ? 'text-yellow-200/70' : 'text-red-200/70'
+                                }`}>
+                                {filterParam === 'lowStock'
+                                    ? 'Critério: Estoque Atual < 20% do Ponto de Reposição'
+                                    : 'Produtos com validade próxima'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={clearFilter}
+                        className={`btn-ghost text-sm ${filterParam === 'lowStock' ? 'text-yellow-400 hover:bg-yellow-500/20' : 'text-red-400 hover:bg-red-500/20'
+                            }`}
+                    >
+                        <X className="w-4 h-4 mr-1" /> Limpar Filtro
+                    </button>
+                </div>
+            )}
 
             {/* Calibration Warning Banner */}
             {showCalibrationWarning && !dismissedCalibrationWarning && (

@@ -1,9 +1,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '../../stores/auth';
+// import { useAuthStore } from '../../stores/auth'; // Unused
 import { api } from '../../lib/api';
-import { Plus, Search, Minus, Trash2, Check, X, AlertTriangle, FileText, ChevronDown, ChevronRight, Edit2, MessageSquare, Calendar, CheckCircle, Sun, Moon, Settings, Filter } from 'lucide-react';
+import { Plus, Search, Check, X, ChevronRight, Edit2, Calendar, Settings, Filter, MessageSquare, Minus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDate, formatNumber, cn } from '../../lib/utils';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
@@ -158,6 +158,7 @@ export default function ChefRequests() {
                                 <tr className="border-b border-white/5">
                                     <th className="text-left p-4 text-gray-400 font-medium">Código</th>
                                     <th className="text-left p-4 text-gray-400 font-medium">Data Solicitação</th>
+                                    <th className="text-left p-4 text-gray-400 font-medium">Turno</th>
                                     <th className="text-left p-4 text-gray-400 font-medium">Status</th>
                                     <th className="text-left p-4 text-gray-400 font-medium">Itens</th>
                                     <th className="text-left p-4 text-gray-400 font-medium">Conclusão</th>
@@ -182,6 +183,16 @@ export default function ChefRequests() {
                                                     <Calendar className="w-4 h-4 text-gray-600" />
                                                     {formatDate(req.createdAt)}
                                                 </div>
+                                            </td>
+                                            <td className="p-4">
+                                                <span className={cn(
+                                                    "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border",
+                                                    req.shift === 'DAY'
+                                                        ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                                                        : "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                                                )}>
+                                                    {req.shift === 'DAY' ? 'Dia' : 'Noite'}
+                                                </span>
                                             </td>
                                             <td className="p-4">
                                                 <span className={cn(
@@ -262,6 +273,8 @@ export default function ChefRequests() {
 
 function RequestFormModal({ onClose, onSubmit, isLoading, products, template, initialData }: any) {
     const [items, setItems] = useState<any[]>([]);
+    const [shift, setShift] = useState<'DAY' | 'NIGHT' | null>(initialData?.shift || null);
+    const [showShiftError, setShowShiftError] = useState(false);
     const initialized = useRef(false);
 
     useEffect(() => {
@@ -327,6 +340,30 @@ function RequestFormModal({ onClose, onSubmit, isLoading, products, template, in
         setItems(newItems);
     };
 
+    const handleIncrement = (index: number) => {
+        const item = items[index];
+        const val = typeof item.quantity === 'number' ? item.quantity : 0;
+
+        let newVal;
+        if (val === 0) {
+            newVal = 1; // Special rule: 0 -> 1 directly
+        } else if (val < 1) {
+            newVal = val + 0.1; // 0.1 -> 0.2 -> ... -> 1.0
+        } else {
+            newVal = val + 1; // 1.0 -> 2.0
+        }
+
+        updateItem(index, 'quantity', parseFloat(newVal.toFixed(2)));
+    };
+
+    const handleDecrement = (index: number) => {
+        const item = items[index];
+        const val = typeof item.quantity === 'number' ? item.quantity : 0;
+        // If > 1, step 1. If <= 1, step 0.1.
+        const newVal = val > 1 ? val - 1 : val - 0.1;
+        updateItem(index, 'quantity', Math.max(0, parseFloat(newVal.toFixed(2))));
+    };
+
     const handleSubmit = () => {
         const validItems = items.filter(i => i.quantity > 0);
         if (validItems.length === 0) {
@@ -350,7 +387,13 @@ function RequestFormModal({ onClose, onSubmit, isLoading, products, template, in
             }
         }
 
-        onSubmit({ chefObservation, items: validItems });
+        if (!shift) {
+            setShowShiftError(true);
+            toast.error('Selecione o turno (Dia ou Noite) para continuar');
+            return;
+        }
+
+        onSubmit({ chefObservation, items: validItems, shift });
     };
 
     const filteredProducts = products.filter((p: any) =>
@@ -366,9 +409,40 @@ function RequestFormModal({ onClose, onSubmit, isLoading, products, template, in
                         <h2 className="text-xl font-bold text-white">Nova Requisição</h2>
                         <p className="text-gray-400 text-sm">Selecione os itens e quantidades</p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                        <X className="w-6 h-6 text-gray-400" />
-                    </button>
+                    <div className="flex items-center gap-4">
+                        <div className={cn(
+                            "flex items-center gap-2 p-1 rounded-lg border transition-all",
+                            showShiftError ? "border-red-500 bg-red-500/10 animate-pulse" : "border-transparent"
+                        )}>
+                            <button
+                                onClick={() => { setShift('DAY'); setShowShiftError(false); }}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2",
+                                    shift === 'DAY'
+                                        ? "bg-yellow-500 text-black shadow-lg"
+                                        : "text-gray-400 hover:text-white hover:bg-white/10"
+                                )}
+                            >
+                                {shift === 'DAY' && <Check className="w-3 h-3" />}
+                                DIA
+                            </button>
+                            <button
+                                onClick={() => { setShift('NIGHT'); setShowShiftError(false); }}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-md text-sm font-bold transition-all flex items-center gap-2",
+                                    shift === 'NIGHT'
+                                        ? "bg-indigo-500 text-white shadow-lg"
+                                        : "text-gray-400 hover:text-white hover:bg-white/10"
+                                )}
+                            >
+                                {shift === 'NIGHT' && <Check className="w-3 h-3" />}
+                                NOITE
+                            </button>
+                        </div>
+                        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                            <X className="w-6 h-6 text-gray-400" />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -448,25 +522,39 @@ function RequestFormModal({ onClose, onSubmit, isLoading, products, template, in
                                         </div>
 
                                         <div className="flex items-center gap-4">
-                                            <div className="w-32">
-                                                <label className="text-[10px] text-gray-500 block mb-1 uppercase font-bold">Qtd Solicitada</label>
-                                                <div className="relative">
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        value={item.quantity}
-                                                        onChange={(e) => updateItem(index, 'quantity', e.target.value === '' ? '' : parseFloat(e.target.value))}
-                                                        className={cn(
-                                                            "input w-full text-right font-bold text-lg h-10 px-2",
-                                                            isExceeding ? "border-red-500 text-red-100 focus:border-red-500 focus:ring-red-500/50" : ""
+                                            <div className="w-40">
+                                                <label className="text-[10px] text-gray-500 block mb-1 uppercase font-bold text-center">Qtd Solicitada</label>
+                                                <div className="flex items-stretch gap-1 h-12">
+                                                    <button
+                                                        onClick={() => handleDecrement(index)}
+                                                        className="w-12 bg-white/5 hover:bg-white/10 border border-white/10 rounded-l-lg flex items-center justify-center transition-colors group/btn"
+                                                    >
+                                                        <Minus className="w-5 h-5 text-gray-400 group-hover/btn:text-white" />
+                                                    </button>
+                                                    <div className="relative flex-1">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="1"
+                                                            value={item.quantity}
+                                                            onChange={(e) => updateItem(index, 'quantity', e.target.value === '' ? '' : parseFloat(e.target.value))}
+                                                            className={cn(
+                                                                "input w-full text-center font-bold text-lg h-full px-0 rounded-none border-x-0 focus:ring-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
+                                                                isExceeding ? "border-red-500 text-red-100 bg-red-500/5" : "border-white/10"
+                                                            )}
+                                                        />
+                                                        {isExceeding && (
+                                                            <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-red-500 bg-black/90 rounded px-2 py-0.5 text-[10px] whitespace-nowrap z-10 border border-red-500/30 shadow-xl pointer-events-none">
+                                                                Excede estoque!
+                                                            </div>
                                                         )}
-                                                    />
-                                                    {isExceeding && (
-                                                        <div className="absolute -top-3 -right-2 text-red-500 bg-black/80 rounded px-2 py-0.5 text-[10px] whitespace-nowrap z-10 border border-red-500/30 shadow-xl">
-                                                            Excede estoque!
-                                                        </div>
-                                                    )}
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleIncrement(index)}
+                                                        className="w-12 bg-white/5 hover:bg-white/10 border border-white/10 rounded-r-lg flex items-center justify-center transition-colors group/btn"
+                                                    >
+                                                        <Plus className="w-5 h-5 text-gray-400 group-hover/btn:text-white" />
+                                                    </button>
                                                 </div>
                                             </div>
                                             <button
@@ -511,25 +599,15 @@ function RequestFormModal({ onClose, onSubmit, isLoading, products, template, in
 }
 
 function TemplateFormModal({ onClose, onSubmit, isLoading, currentTemplate }: any) {
-    // Initialize items with full details from the template include
-    const [shift, setShift] = useState<'DAY' | 'NIGHT'>((currentTemplate?.shift as any) || 'DAY');
+    // Initialize items with full details from the template prop
     const [items, setItems] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
 
-    // Fetch template when shift changes
-    const { data: shiftTemplate, refetch: refetchTemplate } = useQuery({
-        queryKey: ['stock-request-template', shift],
-        queryFn: () => api.get('/api/stock-requests/template', { params: { shift } }).then(r => r.data.data),
-        enabled: true,
-    });
-
-    // When shiftTemplate loads, update items (if user confirms? Or auto-switch?)
-    // This is tricky. If user is editing, switching shift should probably load that shift's list.
-    // Let's rely on a useEffect to update items when shiftTemplate changes.
+    // Update items when currentTemplate changes
     useEffect(() => {
-        if (shiftTemplate) {
-            setItems(shiftTemplate.items?.map((t: any) => ({
+        if (currentTemplate) {
+            setItems(currentTemplate.items?.map((t: any) => ({
                 productId: t.productId,
                 quantity: t.standardQuantity || 0,
                 name: t.product?.name || 'Produto Desconhecido',
@@ -537,10 +615,9 @@ function TemplateFormModal({ onClose, onSubmit, isLoading, currentTemplate }: an
                 sku: t.product?.sku
             })) || []);
         } else {
-            // Empty if no template for this shift
             setItems([]);
         }
-    }, [shiftTemplate]);
+    }, [currentTemplate]);
 
     // Debounce search term
     useEffect(() => {
@@ -592,32 +669,9 @@ function TemplateFormModal({ onClose, onSubmit, isLoading, currentTemplate }: an
                 <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/5">
                     <div>
                         <h2 className="text-xl font-bold text-white">Configurar Lista Padrão</h2>
-                        <p className="text-gray-400 text-sm">Defina itens para o turno {shift === 'DAY' ? 'Dia' : 'Noite'}</p>
+                        <p className="text-gray-400 text-sm">Defina os itens que sempre aparecem na sua requisição</p>
                     </div>
                     <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="w-6 h-6" /></button>
-                </div>
-
-                <div className="px-6 pt-4">
-                    <div className="flex bg-black/40 p-1 rounded-lg">
-                        <button
-                            onClick={() => setShift('DAY')}
-                            className={cn(
-                                "flex-1 py-2 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2",
-                                shift === 'DAY' ? "bg-primary-500 text-black shadow-lg" : "text-gray-400 hover:text-white"
-                            )}
-                        >
-                            <Sun className="w-4 h-4" /> Turno Dia
-                        </button>
-                        <button
-                            onClick={() => setShift('NIGHT')}
-                            className={cn(
-                                "flex-1 py-2 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2",
-                                shift === 'NIGHT' ? "bg-indigo-500 text-white shadow-lg" : "text-gray-400 hover:text-white"
-                            )}
-                        >
-                            <Moon className="w-4 h-4" /> Turno Noite
-                        </button>
-                    </div>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -706,8 +760,7 @@ function TemplateFormModal({ onClose, onSubmit, isLoading, currentTemplate }: an
                     <button onClick={onClose} className="btn-ghost">Cancelar</button>
                     <button
                         onClick={() => onSubmit({
-                            name: `Lista Padrão(${shift === 'DAY' ? 'Dia' : 'Noite'})`,
-                            shift,
+                            name: 'Lista Padrão',
                             items: items.map(i => ({ productId: i.productId, quantity: 1 }))
                         })}
                         disabled={isLoading}
@@ -726,7 +779,7 @@ function RequestDetailModal({ requestId, onClose }: any) {
     const queryClient = useQueryClient();
     const [comment, setComment] = useState('');
 
-    const { data: request, isLoading } = useQuery({
+    const { data: request } = useQuery({
         queryKey: ['stock-request', requestId],
         queryFn: () => api.get(`/api/stock-requests/${requestId}`).then(r => r.data.data),
     });
@@ -758,7 +811,18 @@ function RequestDetailModal({ requestId, onClose }: any) {
                                 {request.status === 'APPROVED' ? 'Aprovada' : request.status === 'REJECTED' ? 'Rejeitada' : 'Pendente'}
                             </span>
                         </div>
-                        <p className="text-gray-400 mt-1">Solicitado em {formatDate(request.createdAt)}</p>
+                        <p className="text-gray-400 mt-1 flex items-center gap-2">
+                            Solicitado em {formatDate(request.createdAt)}
+                            <span className="text-gray-600">•</span>
+                            <span className={cn(
+                                "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border",
+                                request.shift === 'DAY'
+                                    ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20"
+                                    : "bg-indigo-500/10 text-indigo-400 border-indigo-500/20"
+                            )}>
+                                Turno {request.shift === 'DAY' ? 'Dia' : 'Noite'}
+                            </span>
+                        </p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                         <X className="w-6 h-6 text-gray-400" />
