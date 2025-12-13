@@ -4,14 +4,11 @@ import { UserRole } from 'types';
 import { errors } from './error-handler';
 
 // Extend Fastify types
+// Extend Fastify types
 declare module 'fastify' {
-    interface FastifyRequest {
-        user?: {
-            id: string;
-            email: string;
-            role: UserRole;
-            restaurantId: string | null;
-        };
+    interface FastifySchema {
+        tags?: string[];
+        security?: Record<string, any[]>[];
     }
 }
 
@@ -22,6 +19,7 @@ declare module '@fastify/jwt' {
             email: string;
             role: UserRole;
             restaurantId: string | null;
+            type?: string;
         };
         user: {
             id: string;
@@ -35,7 +33,7 @@ declare module '@fastify/jwt' {
 // Authentication middleware
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
     try {
-        const decoded = await request.jwtVerify();
+        const decoded = await request.jwtVerify<{ sub: string }>();
 
         // Verify user still exists and is active
         const user = await prisma.user.findUnique({
