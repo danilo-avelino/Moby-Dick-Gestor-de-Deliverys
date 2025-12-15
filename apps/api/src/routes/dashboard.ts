@@ -1,12 +1,12 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import type { ApiResponse } from 'types';
 
 export async function dashboardRoutes(fastify: FastifyInstance) {
     // Get dashboard KPIs
     fastify.get('/kpis', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Dashboard'],
             summary: 'Get dashboard KPIs',
@@ -28,20 +28,20 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         // Get CMV snapshots
         const [todaySnapshot, yesterdaySnapshot, weekSnapshots, monthSnapshots] = await Promise.all([
             prisma.cMVSnapshot.findFirst({
-                where: { restaurantId: request.user!.restaurantId, date: today },
+                where: { restaurantId: request.user!.costCenterId, date: today },
             }),
             prisma.cMVSnapshot.findFirst({
-                where: { restaurantId: request.user!.restaurantId, date: yesterday },
+                where: { restaurantId: request.user!.costCenterId, date: yesterday },
             }),
             prisma.cMVSnapshot.findMany({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     date: { gte: weekStart, lte: today },
                 },
             }),
             prisma.cMVSnapshot.findMany({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     date: { gte: monthStart, lte: today },
                 },
             }),
@@ -58,7 +58,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
 
         const prevWeekSnapshots = await prisma.cMVSnapshot.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 date: { gte: prevWeekStart, lt: weekStart },
             },
         });
@@ -72,14 +72,14 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         const [unreadAlerts, criticalAlerts] = await Promise.all([
             prisma.alert.count({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     isRead: false,
                     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
                 },
             }),
             prisma.alert.count({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     isRead: false,
                     severity: 'CRITICAL',
                 },
@@ -91,13 +91,13 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             prisma.$queryRaw<[{ count: bigint }]>`
         SELECT COUNT(*) as count
         FROM "Product"
-        WHERE "restaurantId" = ${request.user!.restaurantId}
+        WHERE "restaurantId" = ${request.user!.costCenterId}
           AND "isActive" = true
           AND "currentStock" <= "reorderPoint"
       `.then((r) => Number(r[0]?.count || 0)),
             prisma.stockBatch.count({
                 where: {
-                    product: { restaurantId: request.user!.restaurantId },
+                    product: { restaurantId: request.user!.costCenterId },
                     remainingQty: { gt: 0 },
                     expirationDate: { lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
                 },
@@ -105,8 +105,8 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         ]);
 
         // Get restaurant target
-        const restaurant = await prisma.restaurant.findUnique({
-            where: { id: request.user!.restaurantId! },
+        const restaurant = await prisma.costCenter.findUnique({
+            where: { id: request.user!.costCenterId! },
             select: { targetCmvPercent: true },
         });
 
@@ -164,7 +164,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
 
     // Get top selling items
     fastify.get<{ Querystring: { limit?: string; period?: string } }>('/top-selling', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Dashboard'],
             summary: 'Get top selling items',
@@ -182,7 +182,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         // Get latest menu analysis
         const analysis = await prisma.menuAnalysis.findFirst({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 periodStart: { gte: startDate },
             },
             include: {
@@ -203,7 +203,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             // Return recipes with estimated data
             const recipes = await prisma.recipe.findMany({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     isActive: true,
                 },
                 take: limit,
@@ -247,7 +247,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
 
     // Get revenue chart data
     fastify.get<{ Querystring: { period?: string } }>('/revenue-chart', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Dashboard'],
             summary: 'Get revenue chart data',
@@ -263,7 +263,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
 
         const snapshots = await prisma.cMVSnapshot.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 date: { gte: startDate },
             },
             orderBy: { date: 'asc' },
@@ -290,7 +290,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
 
     // Get recent activity
     fastify.get('/activity', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Dashboard'],
             summary: 'Get recent activity',
@@ -299,7 +299,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const [movements, alerts, goals] = await Promise.all([
             prisma.stockMovement.findMany({
-                where: { product: { restaurantId: request.user!.restaurantId } },
+                where: { product: { restaurantId: request.user!.costCenterId } },
                 take: 5,
                 orderBy: { createdAt: 'desc' },
                 include: {
@@ -308,13 +308,13 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                 },
             }),
             prisma.alert.findMany({
-                where: { restaurantId: request.user!.restaurantId },
+                where: { restaurantId: request.user!.costCenterId },
                 take: 5,
                 orderBy: { createdAt: 'desc' },
             }),
             prisma.goal.findMany({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     achievedAt: { not: null },
                 },
                 take: 3,

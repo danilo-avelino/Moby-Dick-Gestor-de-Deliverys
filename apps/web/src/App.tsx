@@ -51,6 +51,24 @@ function DirectorRoute({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
 }
 
+import Organizations from './pages/admin/Organizations';
+import OrganizationDetails from './pages/admin/OrganizationDetails';
+
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+    const { user } = useAuthStore();
+    if (user?.role !== 'SUPER_ADMIN') return <Navigate to="/" replace />;
+    return <>{children}</>;
+}
+
+import PlatformLayout from './components/PlatformLayout';
+import PlatformOverview from './pages/platform/Overview';
+
+import PlatformEvents from './pages/platform/Events';
+import PlatformBilling from './pages/platform/Billing';
+import PlatformIntegrations from './pages/platform/Integrations';
+import PlatformSecurity from './pages/platform/Security';
+import PlatformSettings from './pages/platform/Settings';
+
 export default function App() {
     return (
         <BrowserRouter>
@@ -60,7 +78,20 @@ export default function App() {
                 <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
                 <Route path="/inventory/share/:token/:categoryId" element={<InventoryPublicCount />} />
 
-                {/* Protected routes */}
+                {/* Platform Routes (Super Admin) */}
+                <Route path="/platform" element={<SuperAdminRoute><PlatformLayout /></SuperAdminRoute>}>
+                    <Route index element={<Navigate to="overview" replace />} />
+                    <Route path="overview" element={<PlatformOverview />} />
+                    <Route path="organizations" element={<Organizations />} />
+                    <Route path="organizations/:id" element={<OrganizationDetails />} />
+                    <Route path="events" element={<PlatformEvents />} />
+                    <Route path="billing" element={<PlatformBilling />} />
+                    <Route path="integrations" element={<PlatformIntegrations />} />
+                    <Route path="security" element={<PlatformSecurity />} />
+                    <Route path="settings" element={<PlatformSettings />} />
+                </Route>
+
+                {/* Tenant Protected Routes */}
                 <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                     <Route index element={<Dashboard />} />
                     <Route path="products" element={<Products />} />

@@ -5,7 +5,7 @@ import { authenticate, requireRole } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import { UserRole, type ApiResponse } from 'types';
 
-const updateRestaurantSchema = z.object({
+const updateCostCenterSchema = z.object({
     name: z.string().min(2).optional(),
     tradeName: z.string().optional(),
     email: z.string().email().optional().or(z.literal('')).transform(v => v === '' ? null : v),
@@ -28,16 +28,32 @@ const updateRestaurantSchema = z.object({
     secondaryColor: z.string().optional(),
 });
 
-export async function restaurantRoutes(fastify: FastifyInstance) {
+export async function costCenterRoutes(fastify: FastifyInstance) {
 
     // --- ADMIN / DIRECTOR ROUTES ---
 
-    // LIST ALL Restaurants (Admin/Director)
+    // LIST ALL CostCenters (Admin/Director)
     fastify.get('/', {
-        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
+        preHandler: [authenticate],
     }, async (request, reply) => {
         const { search, status } = request.query as { search?: string, status?: string };
         const where: any = {};
+
+        // Organization Filter
+        if (request.user.role !== 'SUPER_ADMIN') {
+            if (!request.user.organizationId) {
+                return reply.send({ success: true, data: [] });
+            }
+            where.organizationId = request.user.organizationId;
+        }
+
+        // Permission Filter (for non-org admins)
+        if (request.user.scope === 'RESTAURANTS' && request.user.role !== 'SUPER_ADMIN') { // TODO: Check if scope name RESTAURANTS should be COST_CENTERS now? Keeping generic map for now.
+            const allowedIds = request.user.permissions?.allowedCostCenterIds;
+            if (Array.isArray(allowedIds)) {
+                where.id = { in: allowedIds };
+            }
+        }
 
         if (search) {
             where.name = { contains: search, mode: 'insensitive' };
@@ -46,7 +62,7 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
             where.isActive = status === 'active';
         }
 
-        const restaurants = await prisma.restaurant.findMany({
+        const costCenters = await prisma.costCenter.findMany({
             where,
             orderBy: { name: 'asc' },
             select: {
@@ -63,12 +79,12 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
             }
         });
 
-        return reply.send({ success: true, data: restaurants });
+        return reply.send({ success: true, data: costCenters });
     });
 
-    // CREATE Restaurant
+    // CREATE CostCenter
     fastify.post('/', {
-        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
+        preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN)],
     }, async (request, reply) => {
         const body = z.object({
             name: z.string().min(2),
@@ -84,7 +100,7 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
         }).parse(request.body);
 
         if (body.cnpj) {
-            const existing = await prisma.restaurant.findUnique({
+            const existing = await prisma.costCenter.findUnique({
                 where: { cnpj: body.cnpj }
             });
             if (existing) {
@@ -92,45 +108,65 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
             }
         }
 
-        const restaurant = await prisma.restaurant.create({
-            data: body
+        // Ensure organization context
+        const organizationId = request.user.organizationId;
+        if (!organizationId && request.user.role !== 'SUPER_ADMIN') {
+            throw errors.badRequest('User must belong to an organization to create a cost center');
+        }
+
+        const costCenter = await prisma.costCenter.create({
+            data: {
+                ...body,
+                organizationId: organizationId // Link to Org
+            }
         });
 
-        return reply.status(201).send({ success: true, data: restaurant });
+        // Grant access if needed
+        if (request.user.scope === 'RESTAURANTS' && request.user.id) { // Pending rename to COST_CENTERS scope?
+            await prisma.userCostCenterAccess.create({
+                data: {
+                    userId: request.user.id,
+                    costCenterId: costCenter.id,
+                    organizationId: organizationId!
+                }
+            });
+        }
+
+        return reply.status(201).send({ success: true, data: costCenter });
     });
 
-    // UPDATE Restaurant
+    // UPDATE CostCenter
     fastify.put<{ Params: { id: string } }>('/:id', {
         preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
     }, async (request, reply) => {
         const { id } = request.params;
-        const body = updateRestaurantSchema.parse(request.body); // Reusing existing schema or define new one if needed
+        const body = updateCostCenterSchema.parse(request.body);
 
         if (body.cnpj) {
-            const existing = await prisma.restaurant.findUnique({
+            const existing = await prisma.costCenter.findUnique({
                 where: { cnpj: body.cnpj }
             });
             if (existing && existing.id !== id) {
-                throw errors.conflict('CNPJ já cadastrado em outro restaurante');
+                throw errors.conflict('CNPJ já cadastrado em outro centro de custo');
             }
         }
 
-        const restaurant = await prisma.restaurant.update({
+        const costCenter = await prisma.costCenter.update({
             where: { id },
             data: body,
         });
 
-        return reply.send({ success: true, data: restaurant });
+        return reply.send({ success: true, data: costCenter });
     });
 
-    // TOGGLE STATUS (Archive/Active)
+    // TOGGLE STATUS
     fastify.patch<{ Params: { id: string }, Body: { isActive: boolean } }>('/:id/status', {
         preHandler: [requireRole(UserRole.DIRETOR, UserRole.SUPER_ADMIN)],
     }, async (request, reply) => {
         const { id } = request.params;
         const { isActive } = request.body;
 
-        await prisma.restaurant.update({
+        await prisma.costCenter.update({
             where: { id },
             data: { isActive }
         });
@@ -140,125 +176,84 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
 
     // --- EXISTING ROUTES ---
 
-    // Get current restaurant
+    // Get current cost center
     fastify.get('/current', {
         preHandler: [authenticate],
-        schema: {
-            tags: ['Restaurants'],
-            summary: 'Get current restaurant',
-            security: [{ bearerAuth: [] }],
-        },
     }, async (request, reply) => {
-        if (!request.user?.restaurantId) {
-            throw errors.notFound('No restaurant associated');
+        if (!request.user?.costCenterId) {
+            throw errors.notFound('No cost center associated');
         }
 
-        const restaurant = await prisma.restaurant.findUnique({
-            where: { id: request.user.restaurantId },
+        const costCenter = await prisma.costCenter.findUnique({
+            where: { id: request.user.costCenterId },
             include: {
                 _count: {
                     select: {
                         users: true,
-                        products: true,
-                        recipes: true,
+                        // products: true, // REMOVED from CC scope
+                        // recipes: true, // REMOVED from CC scope
                         integrations: true,
                     },
                 },
             },
         });
 
-        if (!restaurant) {
-            throw errors.notFound('Restaurant not found');
+        if (!costCenter) {
+            throw errors.notFound('Cost Center not found');
         }
 
         const response: ApiResponse = {
             success: true,
             data: {
-                id: restaurant.id,
-                name: restaurant.name,
-                tradeName: restaurant.tradeName,
-                cnpj: restaurant.cnpj,
-                email: restaurant.email,
-                phone: restaurant.phone,
-                logoUrl: restaurant.logoUrl,
-                address: {
-                    street: restaurant.street,
-                    number: restaurant.number,
-                    complement: restaurant.complement,
-                    neighborhood: restaurant.neighborhood,
-                    city: restaurant.city,
-                    state: restaurant.state,
-                    zipCode: restaurant.zipCode,
-                    country: restaurant.country,
-                },
-                settings: {
-                    timezone: restaurant.timezone,
-                    currency: restaurant.currency,
-                    locale: restaurant.locale,
-                    targetCmvPercent: restaurant.targetCmvPercent,
-                    alertCmvThreshold: restaurant.alertCmvThreshold,
-                    primaryColor: restaurant.primaryColor,
-                    secondaryColor: restaurant.secondaryColor,
-                },
-                plan: restaurant.plan,
-                planExpiresAt: restaurant.planExpiresAt?.toISOString(),
-                stats: restaurant._count,
-                createdAt: restaurant.createdAt.toISOString(),
-                updatedAt: restaurant.updatedAt.toISOString(),
+                ...costCenter,
+                planExpiresAt: costCenter.planExpiresAt?.toISOString(),
+                createdAt: costCenter.createdAt.toISOString(),
+                updatedAt: costCenter.updatedAt.toISOString(),
+                stats: costCenter._count,
             },
         };
 
         return reply.send(response);
     });
 
-    // Update restaurant
+    // Update current cost center
     fastify.patch('/current', {
         preHandler: [requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN)],
-        schema: {
-            tags: ['Restaurants'],
-            summary: 'Update current restaurant',
-            security: [{ bearerAuth: [] }],
-        },
     }, async (request, reply) => {
-        if (!request.user?.restaurantId) {
-            throw errors.notFound('No restaurant associated');
+        if (!request.user?.costCenterId) {
+            throw errors.notFound('No cost center associated');
         }
 
-        const body = updateRestaurantSchema.parse(request.body);
+        const body = updateCostCenterSchema.parse(request.body);
 
-        const restaurant = await prisma.restaurant.update({
-            where: { id: request.user.restaurantId },
+        const costCenter = await prisma.costCenter.update({
+            where: { id: request.user.costCenterId },
             data: body,
         });
 
         const response: ApiResponse = {
             success: true,
             data: {
-                id: restaurant.id,
-                name: restaurant.name,
-                tradeName: restaurant.tradeName,
-                updatedAt: restaurant.updatedAt.toISOString(),
+                id: costCenter.id,
+                name: costCenter.name,
+                tradeName: costCenter.tradeName,
+                updatedAt: costCenter.updatedAt.toISOString(),
             },
         };
 
         return reply.send(response);
     });
 
-    // Get restaurant users
+    // Get cost center users
     fastify.get('/current/users', {
         preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.SUPER_ADMIN)],
-        schema: {
-            tags: ['Restaurants'],
-            summary: 'Get restaurant users',
-            security: [{ bearerAuth: [] }],
-        },
     }, async (request, reply) => {
-        if (!request.user?.restaurantId) {
-            throw errors.notFound('No restaurant associated');
+        if (!request.user?.costCenterId) {
+            throw errors.notFound('No cost center associated');
         }
 
         const users = await prisma.user.findMany({
-            where: { restaurantId: request.user.restaurantId },
+            where: { costCenterId: request.user.costCenterId },
             select: {
                 id: true,
                 email: true,
@@ -289,19 +284,13 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
     // Invite user
     fastify.post<{ Body: { email: string; firstName: string; lastName: string; role: string } }>('/current/users', {
         preHandler: [requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN)],
-        schema: {
-            tags: ['Restaurants'],
-            summary: 'Invite user to restaurant',
-            security: [{ bearerAuth: [] }],
-        },
     }, async (request, reply) => {
-        if (!request.user?.restaurantId) {
-            throw errors.notFound('No restaurant associated');
+        if (!request.user?.costCenterId) {
+            throw errors.notFound('No cost center associated');
         }
 
         const { email, firstName, lastName, role } = request.body;
 
-        // Check if email exists
         const existingUser = await prisma.user.findUnique({
             where: { email },
         });
@@ -310,7 +299,6 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
             throw errors.conflict('Email already registered');
         }
 
-        // Create user with temporary password
         const bcrypt = await import('bcryptjs');
         const tempPassword = Math.random().toString(36).slice(-8);
         const passwordHash = await bcrypt.hash(tempPassword, 10);
@@ -322,11 +310,18 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
                 lastName,
                 passwordHash,
                 role: role as any,
-                restaurantId: request.user.restaurantId,
+                costCenterId: request.user.costCenterId,
+                organizationId: request.user.organizationId, // Ensure org link
             },
         });
 
-        // TODO: Send invitation email with temp password
+        await prisma.userCostCenterAccess.create({
+            data: {
+                userId: user.id,
+                costCenterId: request.user.costCenterId!,
+                organizationId: request.user.organizationId!,
+            }
+        });
 
         const response: ApiResponse = {
             success: true,
@@ -336,7 +331,7 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 role: user.role,
-                tempPassword, // In production, send via email only
+                tempPassword,
                 createdAt: user.createdAt.toISOString(),
             },
         };
@@ -347,20 +342,14 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
     // Update user
     fastify.patch<{ Params: { userId: string }; Body: { role?: string; isActive?: boolean } }>('/current/users/:userId', {
         preHandler: [requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN)],
-        schema: {
-            tags: ['Restaurants'],
-            summary: 'Update user in restaurant',
-            security: [{ bearerAuth: [] }],
-        },
     }, async (request, reply) => {
         const { userId } = request.params;
         const { role, isActive } = request.body;
 
-        // Ensure user belongs to restaurant
         const user = await prisma.user.findFirst({
             where: {
                 id: userId,
-                restaurantId: request.user?.restaurantId,
+                costCenterId: request.user?.costCenterId,
             },
         });
 
@@ -368,7 +357,6 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
             throw errors.notFound('User not found');
         }
 
-        // Prevent self-deactivation
         if (userId === request.user?.id && isActive === false) {
             throw errors.badRequest('Cannot deactivate yourself');
         }
@@ -397,24 +385,17 @@ export async function restaurantRoutes(fastify: FastifyInstance) {
     // Delete user
     fastify.delete<{ Params: { userId: string } }>('/current/users/:userId', {
         preHandler: [requireRole(UserRole.ADMIN, UserRole.SUPER_ADMIN)],
-        schema: {
-            tags: ['Restaurants'],
-            summary: 'Remove user from restaurant',
-            security: [{ bearerAuth: [] }],
-        },
     }, async (request, reply) => {
         const { userId } = request.params;
 
-        // Prevent self-deletion
         if (userId === request.user?.id) {
             throw errors.badRequest('Cannot delete yourself');
         }
 
-        // Ensure user belongs to restaurant
         const user = await prisma.user.findFirst({
             where: {
                 id: userId,
-                restaurantId: request.user?.restaurantId,
+                costCenterId: request.user?.costCenterId,
             },
         });
 

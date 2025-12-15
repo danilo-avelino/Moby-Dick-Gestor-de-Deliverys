@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, Plus, Trash2, Search, Store, User, Package, AlertCircle, Loader2 } from 'lucide-react';
+import { X, Plus, Trash2, Search, Store, User, Package, AlertCircle, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../../lib/api';
-import { useSettingsStore } from '../../../stores/settings';
+import { useAuthStore } from '../../../stores/auth';
+import { QuantityStepper } from '../../../components/ui/QuantityStepper';
+import { Combobox } from '@headlessui/react';
 
 // Types
 interface Product {
@@ -19,10 +21,22 @@ interface RequisitionItem {
     tempId: string;
     productId: string;
     quantity: string;
-    type: 'raw' | 'portioned';
-    productName?: string; // Cache for display
-    unit?: string;
-    currentStock?: number;
+    productName: string;
+    unit: string;
+    currentStock: number;
+}
+
+interface CostCenter {
+    id: string;
+    name: string;
+    type: 'RESTAURANT' | 'FIXED';
+}
+
+interface UserSummary {
+    id: string;
+    firstName: string;
+    lastName: string;
+    role: string;
 }
 
 interface Props {
@@ -32,31 +46,66 @@ interface Props {
 
 export default function StockRequisitionModal({ isOpen, onClose }: Props) {
     // Stores
-    const { subRestaurants } = useSettingsStore();
+    const { user } = useAuthStore();
+    const queryClient = useQueryClient();
 
     // State
-    const [costCenter, setCostCenter] = useState('');
-    const [requester, setRequester] = useState('');
+    const [selectedCostCenterId, setSelectedCostCenterId] = useState('');
+    const [selectedRequesterId, setSelectedRequesterId] = useState('');
+    const [requesterQuery, setRequesterQuery] = useState('');
+
     const [items, setItems] = useState<RequisitionItem[]>([]);
 
     // UI State for adding product
     const [isAdding, setIsAdding] = useState(false);
-    const [newItemType, setNewItemType] = useState<'raw' | 'portioned'>('raw');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
     const [searchProduct, setSearchProduct] = useState('');
     const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
     const [quantity, setQuantity] = useState('');
 
-    const queryClient = useQueryClient();
+    // Fetch Cost Centers
+    const { data: costCenters = [] } = useQuery({
+        queryKey: ['cost-centers', user?.organizationId],
+        queryFn: async () => {
+            const res = await api.get('/api/stock/cost-centers');
+            return res.data.data as CostCenter[];
+        },
+        enabled: isOpen && !!user,
+    });
+
+    // Fetch Users (Requesters)
+    // We fetch all users in Org for the dropdown. 
+    // If list is huge (>500), should implement server-side search. 
+    // Assuming manageable size for now as per prompt "dropdown com scroll".
+    const { data: usersData = [] } = useQuery({
+        queryKey: ['users-list-simple', user?.organizationId],
+        queryFn: async () => {
+            const res = await api.get('/api/users?limit=1000&status=active');
+            return res.data.data as UserSummary[];
+        },
+        enabled: isOpen && !!user,
+    });
+
+    const filteredUsers = useMemo(() => {
+        if (!requesterQuery) return usersData;
+        const q = requesterQuery.toLowerCase();
+        return usersData.filter(u =>
+            `${u.firstName} ${u.lastName}`.toLowerCase().includes(q) ||
+            u.role.toLowerCase().includes(q)
+        );
+    }, [usersData, requesterQuery]);
 
     // Fetch products
     const { data: productsData, isLoading: productsLoading } = useQuery({
         queryKey: ['products-list'],
         queryFn: async () => {
-            const res = await api.get('/api/products?limit=1000&isActive=true'); // Limit high for MVP dropdown
+            // Fetch products active. 
+            // Ideally should filter by "Source Context".
+            // Assuming current User context implies the Source Restaurant.
+            const res = await api.get('/api/products?limit=1000&isActive=true');
             return res.data.data.data as Product[];
         },
-        enabled: isOpen, // Only fetch when open
+        enabled: isOpen,
     });
 
     // Filtered products for search
@@ -75,18 +124,13 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
         },
         onSuccess: () => {
             toast.success('Requisição realizada com sucesso!');
-            // Invalidate all stock and product queries for immediate update
+            // Invalidate queries
             queryClient.invalidateQueries({ queryKey: ['stock'] });
-            queryClient.invalidateQueries({ queryKey: ['stock-summary'] });
-            queryClient.invalidateQueries({ queryKey: ['stock-movements'] });
             queryClient.invalidateQueries({ queryKey: ['products'] });
-            queryClient.invalidateQueries({ queryKey: ['products-list'] });
-            queryClient.invalidateQueries({ queryKey: ['products-simple'] });
-            queryClient.invalidateQueries({ queryKey: ['product-details'] });
             onClose();
             // Reset
-            setCostCenter('');
-            setRequester('');
+            setSelectedCostCenterId('');
+            setSelectedRequesterId('');
             setItems([]);
         },
         onError: (error: any) => {
@@ -118,8 +162,7 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
                 productName: selectedProduct.name,
                 unit: selectedProduct.baseUnit,
                 currentStock: selectedProduct.currentStock,
-                quantity: quantity,
-                type: newItemType
+                quantity: quantity
             }
         ]);
 
@@ -135,18 +178,21 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
     };
 
     const handleSubmit = () => {
-        if (!costCenter || !requester || items.length === 0) {
+        if (!selectedCostCenterId || !selectedRequesterId || items.length === 0) {
             toast.error('Preencha os campos obrigatórios e adicione itens.');
             return;
         }
 
+        const selectedCostCenter = costCenters.find(c => c.id === selectedCostCenterId);
+
         const payload = {
-            costCenter,
-            requester,
+            organizationId: user?.organizationId,
+            costCenterType: selectedCostCenter?.type,
+            costCenterId: selectedCostCenterId,
+            requesterId: selectedRequesterId,
             items: items.map(i => ({
                 productId: i.productId,
-                quantity: parseFloat(i.quantity),
-                type: i.type
+                quantity: parseFloat(i.quantity)
             }))
         };
 
@@ -156,134 +202,204 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="glass-card w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="glass-card w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200 shadow-2xl">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-white/10">
-                    <h3 className="text-xl font-semibold text-white flex items-center gap-2">
-                        <Package className="w-6 h-6 text-primary-400" /> Nova Requisição de Retirada
+                <div className="flex items-center justify-between p-6 border-b border-white/10 bg-white/5">
+                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                        <div className="p-2 bg-primary-500/20 rounded-lg">
+                            <Package className="w-6 h-6 text-primary-400" />
+                        </div>
+                        Nova Requisição (ABSTOC)
                     </h3>
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
-                        <X className="w-5 h-5 text-gray-400" />
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                        <X className="w-6 h-6 text-gray-400" />
                     </button>
                 </div>
 
                 {/* Body - Scrollable */}
-                <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                <div className="p-6 overflow-y-auto flex-1 space-y-8">
 
-                    {/* Header Fields */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="label flex items-center gap-2">
-                                <Store className="w-4 h-4" /> Centro de Custo <span className="text-red-400">*</span>
+                    {/* Header Fields - Grid Layout */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                        {/* Cost Center Select */}
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                <Store className="w-4 h-4 text-primary-400" />
+                                Centro de Custo <span className="text-red-400">*</span>
                             </label>
-                            <select
-                                className="input"
-                                value={costCenter}
-                                onChange={(e) => setCostCenter(e.target.value)}
-                            >
-                                <option value="">Selecione...</option>
-                                <option value="Operação Compartilhada">Operação Compartilhada</option>
-                                <option value="Alimentação Funcionários">Alimentação Funcionários</option>
-                                <option value="Serviços Gerais">Serviços Gerais</option>
-                                {subRestaurants.length > 0 && subRestaurants.map(r => (
-                                    <option key={r.id} value={r.name}>{r.name}</option>
-                                ))}
-                            </select>
+                            <div className="relative">
+                                <select
+                                    className="input w-full h-12 bg-black/20 focus:bg-black/40 border-white/10 focus:border-primary-500/50"
+                                    value={selectedCostCenterId}
+                                    onChange={(e) => setSelectedCostCenterId(e.target.value)}
+                                >
+                                    <option value="">Selecione o destino...</option>
+
+                                    {/* Group: Fixed */}
+                                    <optgroup label="Interno">
+                                        {costCenters.filter(c => c.type === 'FIXED').map(c => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                        ))}
+                                    </optgroup>
+
+                                    {/* Group: Restaurants */}
+                                    <optgroup label="Restaurantes">
+                                        {costCenters.filter(c => c.type === 'RESTAURANT').map(c => (
+                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                        ))}
+                                    </optgroup>
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label className="label flex items-center gap-2">
-                                <User className="w-4 h-4" /> Requerente <span className="text-red-400">*</span>
+
+                        {/* Requester Combobox (Custom Dropdown with Scroll) */}
+                        <div className="space-y-2 relative">
+                            <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                <User className="w-4 h-4 text-primary-400" />
+                                Requerente <span className="text-red-400">*</span>
                             </label>
-                            <input
-                                type="text"
-                                className="input"
-                                placeholder="Nome do solicitante"
-                                value={requester}
-                                onChange={(e) => setRequester(e.target.value)}
-                            />
+
+                            <Combobox value={selectedRequesterId} onChange={setSelectedRequesterId} nullable>
+                                <div className="relative">
+                                    <div className="relative w-full cursor-default overflow-hidden rounded-lg">
+                                        <Combobox.Input
+                                            className="input w-full h-12 bg-black/20 focus:bg-black/40 border-white/10 focus:border-primary-500/50 pl-4 pr-10"
+                                            displayValue={(id: string) => {
+                                                const u = usersData.find(u => u.id === id);
+                                                return u ? `${u.firstName} ${u.lastName}` : '';
+                                            }}
+                                            onChange={(event) => setRequesterQuery(event.target.value)}
+                                            placeholder="Buscar usuário..."
+                                        />
+                                        <Combobox.Button className="absolute inset-y-0 right-0 flex items-center pr-2">
+                                            <Search className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                                        </Combobox.Button>
+                                    </div>
+                                    <Combobox.Options className="absolute mt-1 max-h-60 w-full overflow-auto rounded-md bg-gray-900 border border-white/10 py-1 text-base shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm z-20">
+                                        {filteredUsers.length === 0 && requesterQuery !== '' ? (
+                                            <div className="relative cursor-default select-none py-2 px-4 text-gray-500">
+                                                Nenhum usuário encontrado.
+                                            </div>
+                                        ) : (
+                                            filteredUsers.map((person) => (
+                                                <Combobox.Option
+                                                    key={person.id}
+                                                    className={({ active }) =>
+                                                        `relative cursor-default select-none py-3 pl-10 pr-4 ${active ? 'bg-primary-500/20 text-white' : 'text-gray-300'
+                                                        }`
+                                                    }
+                                                    value={person.id}
+                                                >
+                                                    {({ selected, active }) => (
+                                                        <>
+                                                            <div className="flex flex-col">
+                                                                <span className={`block truncate ${selected ? 'font-medium' : 'font-normal'}`}>
+                                                                    {person.firstName} {person.lastName}
+                                                                </span>
+                                                                <span className={`block truncate text-xs ${active ? 'text-primary-200' : 'text-gray-500'}`}>
+                                                                    {person.role}
+                                                                </span>
+                                                            </div>
+                                                            {selected ? (
+                                                                <span className={`absolute inset-y-0 left-0 flex items-center pl-3 ${active ? 'text-white' : 'text-primary-500'}`}>
+                                                                    <Check className="h-5 w-5" aria-hidden="true" />
+                                                                </span>
+                                                            ) : null}
+                                                        </>
+                                                    )}
+                                                </Combobox.Option>
+                                            ))
+                                        )}
+                                    </Combobox.Options>
+                                </div>
+                            </Combobox>
                         </div>
                     </div>
 
-                    {/* Items List */}
-                    <div className="space-y-3">
+                    <div className="border-t border-white/10 pt-6"></div>
+
+                    {/* Items Section */}
+                    <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-medium text-gray-300">Itens da Requisição</h4>
+                            <h4 className="text-lg font-bold text-white flex items-center gap-2">
+                                Itens da Requisição
+                                <span className="text-sm font-normal text-gray-400 px-2 py-0.5 bg-white/5 rounded-full">
+                                    {items.length}
+                                </span>
+                            </h4>
                             {!isAdding && (
                                 <button
                                     onClick={() => setIsAdding(true)}
-                                    className="btn-ghost text-primary-400 text-sm py-1 px-3"
+                                    className="btn-primary text-sm py-2 px-4 shadow-lg shadow-primary-500/20"
                                 >
-                                    <Plus className="w-4 h-4 mr-1" /> Adicionar Produto
+                                    <Plus className="w-4 h-4 mr-2" /> Adicionar Item
                                 </button>
                             )}
                         </div>
 
-                        {items.length === 0 && !isAdding && (
-                            <div className="text-center py-8 border-2 border-dashed border-white/10 rounded-xl bg-white/5">
-                                <Package className="w-8 h-8 text-gray-500 mx-auto mb-2 opacity-50" />
-                                <p className="text-gray-500 text-sm">Nenhum item adicionado à requisição.</p>
-                                <button
-                                    onClick={() => setIsAdding(true)}
-                                    className="mt-3 text-primary-400 text-sm font-medium hover:underline"
-                                >
-                                    Clique para adicionar
-                                </button>
-                            </div>
-                        )}
-
-                        {items.map(item => (
-                            <div key={item.tempId} className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-white/10">
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${item.type === 'raw' ? 'bg-green-500/20 text-green-400' : 'bg-blue-500/20 text-blue-400'}`}>
-                                        <Package className="w-4 h-4" />
+                        {/* Items List */}
+                        <div className="space-y-3">
+                            {items.length === 0 && !isAdding && (
+                                <div className="text-center py-12 border-2 border-dashed border-white/10 rounded-xl bg-white/5 hover:bg-white/10 transition-colors cursor-pointer" onClick={() => setIsAdding(true)}>
+                                    <div className="w-16 h-16 rounded-full bg-black/20 flex items-center justify-center mx-auto mb-4">
+                                        <Package className="w-8 h-8 text-gray-500 opacity-50" />
                                     </div>
-                                    <div>
-                                        <p className="text-white font-medium">{item.productName}</p>
-                                        <p className="text-xs text-gray-400">
-                                            {item.type === 'raw' ? 'Insumo Bruto' : 'Insumo Porcionado'} • Estoque Atual: {item.currentStock} {item.unit}
-                                        </p>
-                                    </div>
+                                    <p className="text-gray-400 text-sm font-medium">Sua lista está vazia.</p>
+                                    <p className="text-gray-600 text-xs mt-1">Clique em "Adicionar Item" para começar.</p>
                                 </div>
-                                <div className="flex items-center gap-4">
-                                    <span className="font-mono text-lg text-white">{item.quantity} <span className="text-xs text-gray-500">{item.unit}</span></span>
-                                    <button
-                                        onClick={() => handleRemoveItem(item.tempId)}
-                                        className="text-gray-500 hover:text-red-400 transition-colors"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            </div>
-                        ))}
+                            )}
 
-                        {/* Add Item Form */}
-                        {isAdding && (
-                            <div className="p-4 bg-gray-800/50 rounded-xl border border-primary-500/30 animate-in fade-in slide-in-from-top-2">
-                                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-                                    {/* Type Selection */}
-                                    <div className="md:col-span-3">
-                                        <label className="label text-xs">Tipo</label>
-                                        <select
-                                            className="input text-sm py-2"
-                                            value={newItemType}
-                                            onChange={(e) => setNewItemType(e.target.value as any)}
+                            {items.map(item => (
+                                <div key={item.tempId} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5 hover:border-white/10 transition-colors group">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 rounded-lg bg-black/30 text-gray-400">
+                                            <Package className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <p className="text-white font-medium text-lg leading-tight">{item.productName}</p>
+                                            <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-green-500/50"></span>
+                                                Disponível: {item.currentStock} {item.unit}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-6">
+                                        <div className="text-right">
+                                            <span className="block font-mono text-xl font-bold text-white">{item.quantity}</span>
+                                            <span className="text-xs text-gray-500 uppercase font-bold tracking-wider">{item.unit}</span>
+                                        </div>
+                                        <button
+                                            onClick={() => handleRemoveItem(item.tempId)}
+                                            className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                            title="Remover item"
                                         >
-                                            <option value="raw">Insumo Bruto</option>
-                                            <option value="portioned">Porcionado</option>
-                                        </select>
+                                            <Trash2 className="w-5 h-5" />
+                                        </button>
                                     </div>
+                                </div>
+                            ))}
+                        </div>
 
+                        {/* Add Item Form (Inline) */}
+                        {isAdding && (
+                            <div className="p-6 bg-gray-900 rounded-xl border border-primary-500/50 shadow-2xl relative animate-scale-in">
+                                <div className="absolute -top-3 left-6 px-2 bg-gray-900 text-primary-400 text-xs font-bold uppercase tracking-wider border border-primary-500/50 rounded">
+                                    Novo Item
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-end">
                                     {/* Product Search */}
-                                    <div className="md:col-span-6 relative">
-                                        <label className="label text-xs">Produto</label>
+                                    <div className="md:col-span-8 relative">
+                                        <label className="label text-xs uppercase tracking-wider font-bold text-gray-500 mb-1">Produto</label>
                                         {!selectedProduct ? (
                                             <div className="relative">
-                                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                                                <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                                 <input
                                                     autoFocus
-                                                    className="input pl-9 text-sm py-2"
-                                                    placeholder="Buscar por nome ou SKU..."
+                                                    className="input pl-10 h-12 bg-black/40 border-white/10 text-white placeholder-gray-600 w-full"
+                                                    placeholder="Digite nome ou SKU para buscar..."
                                                     value={searchProduct}
                                                     onChange={(e) => setSearchProduct(e.target.value)}
                                                     onFocus={() => setIsSearchFocused(true)}
@@ -291,9 +407,9 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
                                                 />
                                                 {/* Dropdown Results */}
                                                 {(isSearchFocused || searchProduct.length > 0) && (
-                                                    <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                                                    <div className="absolute z-20 w-full mt-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl max-h-60 overflow-y-auto">
                                                         {productsLoading ? (
-                                                            <div className="p-3 text-center text-gray-500 text-xs">Carregando...</div>
+                                                            <div className="p-4 text-center text-gray-500 text-sm">Carregando...</div>
                                                         ) : filteredProducts.length > 0 ? (
                                                             filteredProducts.map(p => (
                                                                 <button
@@ -302,93 +418,105 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
                                                                         setSelectedProduct(p);
                                                                         setSearchProduct('');
                                                                     }}
-                                                                    className="w-full text-left px-3 py-2 hover:bg-gray-700 text-sm text-gray-200 border-b border-gray-700/50 last:border-0"
+                                                                    className="w-full text-left px-4 py-3 hover:bg-white/10 text-sm border-b border-white/5 last:border-0 transition-colors flex justify-between items-center group"
                                                                 >
-                                                                    <div className="flex justify-between">
-                                                                        <span>{p.name}</span>
-                                                                        <span className="text-gray-500 font-mono text-xs">{p.currentStock} {p.baseUnit}</span>
+                                                                    <div className="text-gray-200 group-hover:text-white font-medium">{p.name}</div>
+                                                                    <div className="text-gray-500 font-mono text-xs bg-black/40 px-2 py-1 rounded">
+                                                                        Estoque: {p.currentStock} {p.baseUnit}
                                                                     </div>
                                                                 </button>
                                                             ))
                                                         ) : (
-                                                            <div className="p-3 text-center text-gray-500 text-xs">Nenhum produto encontrado.</div>
+                                                            <div className="p-4 text-center text-gray-500 text-sm">Nenhum produto encontrado.</div>
                                                         )}
                                                     </div>
                                                 )}
                                             </div>
                                         ) : (
-                                            <div className="flex items-center justify-between input py-1 bg-primary-500/10 border-primary-500/30">
-                                                <span className="text-sm font-medium text-white truncate">{selectedProduct.name}</span>
-                                                <button onClick={() => setSelectedProduct(null)} className="text-gray-400 hover:text-white">
-                                                    <X className="w-4 h-4" />
+                                            <div className="flex items-center justify-between input h-12 bg-primary-500/10 border-primary-500/50 px-4">
+                                                <div className="flex items-center gap-3 overflow-hidden">
+                                                    <Check className="w-5 h-5 text-primary-400 flex-shrink-0" />
+                                                    <span className="font-bold text-white truncate">{selectedProduct.name}</span>
+                                                </div>
+                                                <button onClick={() => setSelectedProduct(null)} className="p-1 hover:bg-white/10 rounded-full text-gray-400 hover:text-white transition-colors">
+                                                    <X className="w-5 h-5" />
                                                 </button>
                                             </div>
                                         )}
                                     </div>
 
-                                    {/* Quantity */}
-                                    <div className="md:col-span-3">
-                                        <label className="label text-xs">Qtd ({selectedProduct?.baseUnit || '-'})</label>
-                                        <input
-                                            type="number"
-                                            className="input text-sm py-2"
-                                            placeholder="0.00"
+                                    {/* Quantity Stepper */}
+                                    <div className="md:col-span-4">
+                                        <label className="label text-xs uppercase tracking-wider font-bold text-gray-500 mb-1">
+                                            Quantidade ({selectedProduct?.baseUnit || '-'})
+                                        </label>
+                                        <QuantityStepper
                                             value={quantity}
-                                            onChange={(e) => setQuantity(e.target.value)}
-                                            onKeyDown={(e) => e.key === 'Enter' && handleAddItem()}
+                                            onChange={setQuantity}
+                                            unit={selectedProduct?.baseUnit}
+                                            disabled={!selectedProduct}
                                         />
                                     </div>
                                 </div>
 
-                                <div className="flex justify-end gap-2 mt-3">
+                                {/* Actions */}
+                                <div className="flex justify-end gap-3 mt-6 border-t border-white/5 pt-4">
                                     <button
                                         onClick={() => setIsAdding(false)}
-                                        className="btn-ghost text-xs py-1"
+                                        className="btn-ghost py-2 px-4"
                                     >
                                         Cancelar
                                     </button>
                                     <button
                                         onClick={handleAddItem}
                                         disabled={!selectedProduct || !quantity}
-                                        className="btn-primary text-xs py-1 px-4"
+                                        className="btn-primary py-2 px-6 shadow-lg shadow-primary-500/20"
                                     >
-                                        Adicionar
+                                        Confirmar Item
                                     </button>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* Disclaimer */}
-                    <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                        <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
-                        <div className="text-xs text-yellow-200/80">
-                            <p className="font-semibold text-yellow-400 mb-1">Atenção ao Retirar:</p>
-                            <p>O sistema utilizará automaticamente a lógica <strong>FEFO (First Expire, First Out)</strong>. Os lotes com validade mais próxima serão consumidos primeiro.</p>
+                    {/* Disclaimer - always visible */}
+                    <div className="flex items-start gap-3 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                        <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                        <div className="text-sm text-blue-200/80">
+                            <p className="font-bold text-blue-400 mb-1">Política de Retirada (FEFO):</p>
+                            <p className="leading-relaxed">
+                                O sistema prioriza automaticamente os lotes com vencimento mais próximo
+                                (First Expire, First Out). Ao confirmar, a baixa será realizada imediatamente.
+                            </p>
                         </div>
                     </div>
 
                 </div>
 
                 {/* Footer */}
-                <div className="p-6 border-t border-white/10 flex justify-end gap-3 bg-black/20">
-                    <button
-                        onClick={onClose}
-                        className="btn-ghost"
-                    >
-                        Cancelar
-                    </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={createRequisition.isPending || items.length === 0}
-                        className="btn-primary min-w-[150px]"
-                    >
-                        {createRequisition.isPending ? (
-                            <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Salvando...</>
-                        ) : (
-                            'Confirmar Requisição'
-                        )}
-                    </button>
+                <div className="p-6 border-t border-white/10 flex justify-between items-center bg-black/20">
+                    <div className="text-xs text-gray-500">
+                        {user?.firstName}, verifique os dados antes de salvar.
+                    </div>
+                    <div className="flex gap-3">
+                        <button
+                            onClick={onClose}
+                            className="btn-ghost"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={handleSubmit}
+                            disabled={createRequisition.isPending || items.length === 0}
+                            className="btn-primary min-w-[200px] h-12 shadow-xl shadow-primary-500/10"
+                        >
+                            {createRequisition.isPending ? (
+                                <><Loader2 className="w-5 h-5 animate-spin mr-2" /> Processando...</>
+                            ) : (
+                                'Finalizar Requisição'
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

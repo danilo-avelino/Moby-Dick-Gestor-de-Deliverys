@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -23,16 +23,17 @@ const createSupplierSchema = z.object({
 export async function supplierRoutes(fastify: FastifyInstance) {
     // List suppliers
     fastify.get<{ Querystring: { search?: string; isActive?: string } }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Suppliers'],
             summary: 'List suppliers',
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const where: any = {
-            restaurantId: request.user!.restaurantId,
-        };
+        const where: any = {};
+        if (request.user.role !== 'SUPER_ADMIN') {
+            where.organizationId = request.user.organizationId;
+        }
 
         if (request.query.search) {
             where.OR = [
@@ -64,7 +65,7 @@ export async function supplierRoutes(fastify: FastifyInstance) {
 
     // Get supplier
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Suppliers'],
             summary: 'Get supplier by ID',
@@ -74,7 +75,7 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const supplier = await prisma.supplier.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user.organizationId || undefined,
             },
             include: {
                 products: {
@@ -106,7 +107,7 @@ export async function supplierRoutes(fastify: FastifyInstance) {
 
     // Create supplier
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Suppliers'],
             summary: 'Create supplier',
@@ -118,7 +119,8 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const supplier = await prisma.supplier.create({
             data: {
                 ...body,
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.restaurantId!, // TODO: Migrate to Organization? Suppliers are usually Org level.
+                organizationId: request.user!.organizationId!,
             },
         });
 
@@ -132,7 +134,7 @@ export async function supplierRoutes(fastify: FastifyInstance) {
 
     // Update supplier
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Suppliers'],
             summary: 'Update supplier',
@@ -147,7 +149,8 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const existing = await prisma.supplier.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.restaurantId, // Pending cleanup of restaurantId column if removed
+                organizationId: request.user.organizationId || undefined,
             },
         });
 
@@ -170,7 +173,7 @@ export async function supplierRoutes(fastify: FastifyInstance) {
 
     // Delete supplier
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Suppliers'],
             summary: 'Delete supplier',
@@ -180,7 +183,8 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const existing = await prisma.supplier.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.restaurantId, // Pending cleanup
+                organizationId: request.user.organizationId || undefined,
             },
             include: {
                 _count: { select: { products: true } },

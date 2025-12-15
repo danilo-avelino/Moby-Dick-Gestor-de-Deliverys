@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -35,7 +35,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
             limit?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Search customers',
@@ -47,8 +47,8 @@ export async function customersRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = { isActive: true };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         if (request.query.search) {
@@ -95,7 +95,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
     // Get customer by ID
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Get customer details',
@@ -103,8 +103,8 @@ export async function customersRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({
@@ -143,7 +143,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
     // Create customer
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Create customer',
@@ -154,7 +154,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
         const customer = await prisma.customer.create({
             data: {
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 ...body,
             },
         });
@@ -173,7 +173,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
     // Update customer
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Update customer',
@@ -183,8 +183,8 @@ export async function customersRoutes(fastify: FastifyInstance) {
         const body = createCustomerSchema.partial().parse(request.body);
 
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const existing = await prisma.customer.findFirst({ where });
@@ -211,7 +211,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
     // Add address to customer
     fastify.post<{ Params: { id: string } }>('/:id/addresses', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Add address to customer',
@@ -221,8 +221,8 @@ export async function customersRoutes(fastify: FastifyInstance) {
         const body = createAddressSchema.parse(request.body);
 
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({ where });
@@ -259,7 +259,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
     // Update address
     fastify.patch<{ Params: { id: string; addressId: string } }>('/:id/addresses/:addressId', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Update customer address',
@@ -269,8 +269,8 @@ export async function customersRoutes(fastify: FastifyInstance) {
         const body = createAddressSchema.partial().parse(request.body);
 
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({ where });
@@ -313,7 +313,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
     // Delete address
     fastify.delete<{ Params: { id: string; addressId: string } }>('/:id/addresses/:addressId', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Clientes'],
             summary: 'Delete customer address',
@@ -321,8 +321,8 @@ export async function customersRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({ where });

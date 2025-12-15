@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -37,7 +37,7 @@ const createRecipeSchema = z.object({
 
 // Calculate recipe cost from ingredients
 async function calculateRecipeCost(
-    restaurantId: string,
+    organizationId: string,
     ingredients: Array<{
         ingredientType: string;
         productId?: string;
@@ -54,7 +54,7 @@ async function calculateRecipeCost(
 
         if (ingredient.ingredientType === 'PRODUCT' && ingredient.productId) {
             const product = await prisma.product.findFirst({
-                where: { id: ingredient.productId, restaurantId },
+                where: { id: ingredient.productId, organizationId },
             });
             if (product) {
                 // Convert units if needed
@@ -63,7 +63,7 @@ async function calculateRecipeCost(
             }
         } else if (ingredient.ingredientType === 'RECIPE' && ingredient.subRecipeId) {
             const subRecipe = await prisma.recipe.findFirst({
-                where: { id: ingredient.subRecipeId, restaurantId },
+                where: { id: ingredient.subRecipeId, organizationId },
             });
             if (subRecipe) {
                 unitCost = subRecipe.costPerUnit;
@@ -89,7 +89,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             isActive?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'List recipes',
@@ -101,7 +101,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = {
-            restaurantId: request.user!.restaurantId,
+            organizationId: request.user!.organizationId!,
         };
 
         if (request.query.search) {
@@ -174,7 +174,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
     // Get single recipe with ingredients
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'Get recipe by ID',
@@ -184,7 +184,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         const recipe = await prisma.recipe.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId,
             },
             include: {
                 recipeCategory: true,
@@ -278,7 +278,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
     // Create recipe
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'Create recipe',
@@ -289,7 +289,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
         // Calculate cost
         const { totalCost, ingredientCosts } = await calculateRecipeCost(
-            request.user!.restaurantId!,
+            request.user!.organizationId!,
             body.ingredients
         );
 
@@ -301,7 +301,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
         const recipe = await prisma.recipe.create({
             data: {
-                restaurantId: request.user!.restaurantId!,
+                organizationId: request.user!.organizationId!,
                 name: body.name,
                 description: body.description,
                 type: body.type,
@@ -357,7 +357,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
     // Update recipe
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'Update recipe',
@@ -369,7 +369,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         const existing = await prisma.recipe.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId,
             },
             include: { ingredients: true },
         });
@@ -384,7 +384,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
         if (body.ingredients) {
             const { totalCost, ingredientCosts } = await calculateRecipeCost(
-                request.user!.restaurantId!,
+                request.user!.organizationId!,
                 body.ingredients
             );
 
@@ -445,7 +445,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
     // Delete recipe
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'Delete recipe',
@@ -462,7 +462,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         const existing = await prisma.recipe.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId,
             },
         });
 
@@ -493,7 +493,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
     // Recalculate all recipe costs
     fastify.post('/recalculate-costs', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'Recalculate all recipe costs',
@@ -502,7 +502,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const recipes = await prisma.recipe.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId,
                 isActive: true,
             },
             include: { ingredients: true },
@@ -513,7 +513,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
         for (const recipe of recipes) {
             const { totalCost } = await calculateRecipeCost(
-                request.user!.restaurantId!,
+                request.user!.organizationId!,
                 recipe.ingredients.map((i) => ({
                     ingredientType: i.ingredientType,
                     productId: i.productId || undefined,
@@ -558,7 +558,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         for (const change of significantChanges) {
             await prisma.alert.create({
                 data: {
-                    restaurantId: request.user!.restaurantId!,
+                    organizationId: request.user!.organizationId!,
                     type: 'COST_INCREASE',
                     severity: Math.abs(change.change) > 10 ? 'HIGH' : 'MEDIUM',
                     title: `Custo alterado: ${change.name}`,
@@ -582,7 +582,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
 
     // Generate pricing suggestions
     fastify.post<{ Params: { id: string } }>('/:id/pricing', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Recipes'],
             summary: 'Generate pricing suggestions',
@@ -592,7 +592,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         const recipe = await prisma.recipe.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId,
             },
         });
 

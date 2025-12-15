@@ -134,7 +134,7 @@ export default function Stock() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-400">Valor Total</p>
-                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.totalValue || 42600)}</p>
+                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.totalValue ?? 0)}</p>
                                 </div>
                             </div>
                         </div>

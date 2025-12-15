@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -29,7 +29,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
             period?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'List goals',
@@ -37,7 +37,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = {
-            restaurantId: request.user!.restaurantId,
+            restaurantId: request.user!.costCenterId,
         };
 
         if (request.query.userId) {
@@ -80,7 +80,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
 
     // Get my goals (for current user)
     fastify.get('/my', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'Get my goals',
@@ -89,7 +89,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const goals = await prisma.goal.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 userId: request.user!.id,
                 isActive: true,
             },
@@ -115,7 +115,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
 
     // Create goal
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'Create goal',
@@ -127,7 +127,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         // If userId specified, verify user belongs to restaurant
         if (body.userId) {
             const user = await prisma.user.findFirst({
-                where: { id: body.userId, restaurantId: request.user!.restaurantId },
+                where: { id: body.userId, restaurantId: request.user!.costCenterId },
             });
             if (!user) {
                 throw errors.notFound('User not found');
@@ -137,7 +137,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const goal = await prisma.goal.create({
             data: {
                 ...body,
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 periodStart: new Date(body.periodStart),
                 periodEnd: new Date(body.periodEnd),
             },
@@ -162,7 +162,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
 
     // Update goal progress
     fastify.patch<{ Params: { id: string }; Body: { currentValue: number } }>('/:id/progress', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'Update goal progress',
@@ -174,7 +174,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const goal = await prisma.goal.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
             },
         });
 
@@ -196,7 +196,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         if (achievedNow) {
             await prisma.alert.create({
                 data: {
-                    restaurantId: request.user!.restaurantId!,
+                    restaurantId: request.user!.costCenterId!,
                     type: 'GOAL_ACHIEVED',
                     severity: 'LOW',
                     title: `Meta Atingida: ${goal.name}`,
@@ -236,7 +236,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
 
     // Delete goal
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'Delete goal',
@@ -246,7 +246,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const goal = await prisma.goal.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
             },
         });
 
@@ -268,7 +268,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
 
     // Get leaderboard
     fastify.get('/leaderboard', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'Get goals leaderboard',
@@ -279,7 +279,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const achievements = await prisma.achievement.groupBy({
             by: ['userId'],
             where: {
-                user: { restaurantId: request.user!.restaurantId },
+                user: { restaurantId: request.user!.costCenterId },
             },
             _sum: { pointsAwarded: true },
             _count: true,
@@ -312,7 +312,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
 
     // Get user achievements
     fastify.get<{ Params: { userId: string } }>('/achievements/:userId', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Goals'],
             summary: 'Get user achievements',
@@ -322,7 +322,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const achievements = await prisma.achievement.findMany({
             where: {
                 userId: request.params.userId,
-                user: { restaurantId: request.user!.restaurantId },
+                user: { restaurantId: request.user!.costCenterId },
             },
             orderBy: { earnedAt: 'desc' },
         });

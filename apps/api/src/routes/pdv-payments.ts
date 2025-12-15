@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -18,7 +18,7 @@ const addPaymentSchema = z.object({
 export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
     // Add payment to order
     fastify.post<{ Params: { orderId: string } }>('/orders/:orderId/payments', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Add payment to order',
@@ -26,7 +26,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const body = addPaymentSchema.parse(request.body);
-        const restaurantId = request.user?.restaurantId;
+        const restaurantId = request.user?.costCenterId;
 
         // Get order
         const where: any = { id: request.params.orderId };
@@ -150,7 +150,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
 
     // List payments for order
     fastify.get<{ Params: { orderId: string } }>('/orders/:orderId/payments', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'List payments for order',
@@ -158,8 +158,8 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.orderId };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({
@@ -193,7 +193,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
 
     // Refund payment
     fastify.post<{ Params: { paymentId: string } }>('/payments/:paymentId/refund', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Refund a payment',
@@ -211,7 +211,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
             throw errors.notFound('Payment not found');
         }
 
-        if (request.user?.restaurantId && payment.order.restaurantId !== request.user.restaurantId) {
+        if (request.user?.costCenterId && payment.order.restaurantId !== request.user.costCenterId) {
             throw errors.forbidden('Access denied');
         }
 

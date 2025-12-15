@@ -21,8 +21,17 @@ export default function Login() {
         setError('');
         try {
             await login(data.email.toLowerCase().trim(), data.password);
+
+            // Refetch to ensure we have fresh state (role) - although login updates store, let's be safe or just check store/response
+            const user = useAuthStore.getState().user;
+
             toast.success('Login realizado com sucesso!');
-            navigate('/');
+
+            if (user?.role === 'SUPER_ADMIN') {
+                navigate('/platform/overview');
+            } else {
+                navigate('/');
+            }
         } catch (err: any) {
             setError(err.message || 'Erro ao fazer login');
         }

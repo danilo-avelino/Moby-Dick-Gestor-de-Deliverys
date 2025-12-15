@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -16,7 +16,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
             severity?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'List alerts',
@@ -28,7 +28,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = {
-            restaurantId: request.user!.restaurantId,
+            restaurantId: request.user!.costCenterId,
             OR: [
                 { expiresAt: null },
                 { expiresAt: { gt: new Date() } },
@@ -89,7 +89,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // Get unread count
     fastify.get('/unread-count', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Get unread alerts count',
@@ -99,14 +99,14 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const [total, critical] = await Promise.all([
             prisma.alert.count({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     isRead: false,
                     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
                 },
             }),
             prisma.alert.count({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    restaurantId: request.user!.costCenterId,
                     isRead: false,
                     severity: 'CRITICAL',
                     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
@@ -124,7 +124,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // Mark alert as read
     fastify.patch<{ Params: { id: string } }>('/:id/read', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Mark alert as read',
@@ -134,7 +134,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const alert = await prisma.alert.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
             },
         });
 
@@ -161,7 +161,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // Mark all as read
     fastify.post('/mark-all-read', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Mark all alerts as read',
@@ -170,7 +170,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const result = await prisma.alert.updateMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 isRead: false,
             },
             data: {
@@ -190,7 +190,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // Delete alert
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Delete alert',
@@ -200,7 +200,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const alert = await prisma.alert.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
             },
         });
 
@@ -222,7 +222,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // List alert rules
     fastify.get('/rules', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'List alert rules',
@@ -230,7 +230,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const rules = await prisma.alertRule.findMany({
-            where: { restaurantId: request.user!.restaurantId },
+            where: { restaurantId: request.user!.costCenterId },
             orderBy: { type: 'asc' },
         });
 
@@ -252,7 +252,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
             isActive?: boolean;
         };
     }>('/rules', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Create alert rule',
@@ -263,7 +263,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
         const rule = await prisma.alertRule.create({
             data: {
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 type: type as any,
                 name,
                 conditions,
@@ -282,7 +282,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // Update alert rule
     fastify.patch<{ Params: { id: string } }>('/rules/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Update alert rule',
@@ -294,7 +294,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const existing = await prisma.alertRule.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
             },
         });
 
@@ -317,7 +317,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
     // Delete alert rule
     fastify.delete<{ Params: { id: string } }>('/rules/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Alerts'],
             summary: 'Delete alert rule',
@@ -327,7 +327,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const existing = await prisma.alertRule.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
             },
         });
 

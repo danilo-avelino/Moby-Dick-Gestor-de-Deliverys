@@ -1,27 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api } from '../lib/api';
-
-interface User {
-    id: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    role: string;
-    restaurantId?: string;
-    restaurant?: {
-        id: string;
-        name: string;
-        logoUrl?: string;
-        settings: {
-            primaryColor: string;
-            secondaryColor: string;
-        };
-    };
-}
+import { UserDTO, LoginResponse } from 'types';
 
 interface AuthState {
-    user: User | null;
+    user: UserDTO | null;
     accessToken: string | null;
     refreshToken: string | null;
     isAuthenticated: boolean;
@@ -30,7 +13,11 @@ interface AuthState {
     register: (data: { email: string; password: string; firstName: string; lastName: string; restaurantName: string }) => Promise<void>;
     logout: () => void;
     refreshAccessToken: () => Promise<void>;
-    setUser: (user: User) => void;
+    setUser: (user: UserDTO) => void;
+    switchRestaurant: (restaurantId: string) => Promise<void>;
+    originalSession: { accessToken: string; user: UserDTO } | null;
+    startImpersonation: (newUser: UserDTO, newAccessToken: string) => void;
+    stopImpersonation: () => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -41,18 +28,44 @@ export const useAuthStore = create<AuthState>()(
             refreshToken: null,
             isAuthenticated: false,
             isLoading: false,
+            originalSession: null,
+
+            startImpersonation: (newUser: UserDTO, newAccessToken: string) => {
+                const { user, accessToken } = get();
+                if (!user || !accessToken) return;
+
+                set({
+                    originalSession: { user, accessToken },
+                    user: newUser,
+                    accessToken: newAccessToken
+                });
+                api.defaults.headers.common['Authorization'] = `Bearer ${newAccessToken}`;
+            },
+
+            stopImpersonation: () => {
+                const { originalSession } = get();
+                if (originalSession) {
+                    set({
+                        user: originalSession.user,
+                        accessToken: originalSession.accessToken,
+                        originalSession: null
+                    });
+                    api.defaults.headers.common['Authorization'] = `Bearer ${originalSession.accessToken}`;
+                }
+            },
 
             login: async (email: string, password: string) => {
                 set({ isLoading: true });
                 try {
                     const response = await api.post('/api/auth/login', { email, password });
-                    const { user, accessToken, refreshToken } = response.data.data;
+                    const { user, accessToken, refreshToken } = response.data.data as LoginResponse;
                     set({
                         user,
                         accessToken,
                         refreshToken,
                         isAuthenticated: true,
                         isLoading: false,
+                        originalSession: null, // Clear any stale session
                     });
                     api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
                 } catch (error: any) {
@@ -61,11 +74,15 @@ export const useAuthStore = create<AuthState>()(
                 }
             },
 
+            // ... (keep register implementation same as before if not shown, but I need to make sure I don't break it. 
+            // Since I am replacing login block, I should be careful. 
+            // Actually, I can just insert the new methods before login, and update valid partialize in the end.
+
             register: async (data) => {
                 set({ isLoading: true });
                 try {
                     const response = await api.post('/api/auth/register', data);
-                    const { user, accessToken, refreshToken } = response.data.data;
+                    const { user, accessToken, refreshToken } = response.data.data as LoginResponse;
                     set({
                         user,
                         accessToken,
@@ -86,6 +103,7 @@ export const useAuthStore = create<AuthState>()(
                     accessToken: null,
                     refreshToken: null,
                     isAuthenticated: false,
+                    originalSession: null,
                 });
                 delete api.defaults.headers.common['Authorization'];
             },
@@ -109,7 +127,29 @@ export const useAuthStore = create<AuthState>()(
                 }
             },
 
-            setUser: (user: User) => set({ user }),
+            setUser: (user: UserDTO) => set({ user }),
+
+            switchRestaurant: async (restaurantId: string) => {
+                set({ isLoading: true });
+                try {
+                    const response = await api.post('/api/auth/switch-restaurant', { restaurantId });
+                    const { user, accessToken } = response.data.data;
+
+                    // Update user and token
+                    set((state) => ({
+                        user: { ...state.user, ...user }, // Merge to update fields like restaurantId and restaurant details
+                        accessToken,
+                        isLoading: false
+                    }));
+
+                    api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+
+                    // Optional: force reload logic if deeply nested components rely on stale data
+                } catch (error: any) {
+                    set({ isLoading: false });
+                    throw new Error(error.response?.data?.error?.message || 'Failed to switch restaurant');
+                }
+            }
         }),
         {
             name: 'auth-storage',
@@ -118,6 +158,7 @@ export const useAuthStore = create<AuthState>()(
                 accessToken: state.accessToken,
                 refreshToken: state.refreshToken,
                 isAuthenticated: state.isAuthenticated,
+                originalSession: state.originalSession,
             }),
             onRehydrateStorage: () => (state) => {
                 if (state?.accessToken) {

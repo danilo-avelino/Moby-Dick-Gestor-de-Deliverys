@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse, PaginatedResponse, ProductDTO } from 'types';
 
@@ -54,7 +54,7 @@ export async function productRoutes(fastify: FastifyInstance) {
             lowStock?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'List products',
@@ -66,8 +66,20 @@ export async function productRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = {};
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+
+        // STRICT MULTI-TENANCY FILTER
+        // STRICT MULTI-TENANCY FILTER
+        if (request.user.role !== 'SUPER_ADMIN') {
+            if (!request.user.organizationId) {
+                return reply.send({
+                    success: true,
+                    data: {
+                        data: [],
+                        pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false }
+                    }
+                });
+            }
+            where.organizationId = request.user.organizationId;
         }
 
         if (request.query.search) {
@@ -86,10 +98,6 @@ export async function productRoutes(fastify: FastifyInstance) {
         if (request.query.isActive !== undefined) {
             where.isActive = request.query.isActive === 'true';
         }
-
-        // if (request.query.lowStock === 'true') {
-        //     where.currentStock = { lte: prisma.product.fields.reorderPoint };
-        // }
 
         const [products, total] = await Promise.all([
             prisma.product.findMany({
@@ -178,7 +186,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Get single product
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Get product by ID',
@@ -186,8 +194,14 @@ export async function productRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+
+        // STRICT MULTI-TENANCY FILTER
+        // STRICT MULTI-TENANCY FILTER
+        if (request.user.role !== 'SUPER_ADMIN') {
+            if (!request.user.organizationId) {
+                throw errors.forbidden('Organization context required');
+            }
+            where.organizationId = request.user.organizationId;
         }
 
         const product = await prisma.product.findFirst({
@@ -282,7 +296,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Create product
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Create product',
@@ -295,7 +309,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         if (body.sku) {
             const existing = await prisma.product.findFirst({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    organizationId: request.user!.organizationId!,
                     sku: body.sku,
                 },
             });
@@ -307,7 +321,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         const product = await prisma.product.create({
             data: {
                 ...body,
-                restaurantId: request.user!.restaurantId!,
+                organizationId: request.user!.organizationId!,
             },
             include: {
                 category: true,
@@ -329,7 +343,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Update product
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Update product',
@@ -346,8 +360,8 @@ export async function productRoutes(fastify: FastifyInstance) {
 
         // Ensure product exists and belongs to restaurant
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user.role !== 'SUPER_ADMIN') {
+            where.organizationId = request.user.organizationId;
         }
 
         const existing = await prisma.product.findFirst({
@@ -362,7 +376,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         if (body.sku && body.sku !== existing.sku) {
             const duplicate = await prisma.product.findFirst({
                 where: {
-                    restaurantId: request.user!.restaurantId,
+                    organizationId: request.user!.organizationId!,
                     sku: body.sku,
                     NOT: { id: existing.id },
                 },
@@ -410,7 +424,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Delete product
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Delete product',
@@ -419,8 +433,8 @@ export async function productRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         // Ensure product exists and belongs to restaurant
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user.role !== 'SUPER_ADMIN') {
+            where.organizationId = request.user.organizationId;
         }
 
         const existing = await prisma.product.findFirst({
@@ -454,7 +468,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Get low stock products
     fastify.get('/alerts/low-stock', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Get products with low stock',
@@ -464,7 +478,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         const products = await prisma.$queryRaw`
       SELECT id, name, sku, "currentStock", "reorderPoint", "baseUnit", "avgCost"
       FROM "Product"
-      WHERE "restaurantId" = ${request.user!.restaurantId}
+      WHERE "organizationId" = ${request.user!.organizationId}
         AND "isActive" = true
         AND "currentStock" <= "reorderPoint"
       ORDER BY ("currentStock" / NULLIF("reorderPoint", 0)) ASC
@@ -481,7 +495,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Get expiring products
     fastify.get('/alerts/expiring', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Get products expiring soon',
@@ -494,7 +508,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         const batches = await prisma.stockBatch.findMany({
             where: {
                 product: {
-                    restaurantId: request.user!.restaurantId,
+                    organizationId: request.user!.organizationId,
                 },
                 remainingQty: { gt: 0 },
                 expirationDate: { lte: sevenDaysFromNow },
@@ -522,21 +536,21 @@ export async function productRoutes(fastify: FastifyInstance) {
 
     // Delete ALL products for the restaurant (dangerous operation)
     fastify.delete('/all', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Products'],
             summary: 'Delete ALL products (dangerous)',
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const restaurantId = request.user!.restaurantId!;
+        const organizationId = request.user!.organizationId!;
 
         // Delete related records first (in order to avoid foreign key constraints)
         // 1. Delete stock movements
         await prisma.stockMovement.deleteMany({
             where: {
                 product: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
@@ -545,7 +559,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         await prisma.stockBatch.deleteMany({
             where: {
                 product: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
@@ -554,7 +568,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         await prisma.inventoryItem.deleteMany({
             where: {
                 product: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
@@ -563,7 +577,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         await prisma.recipeIngredient.deleteMany({
             where: {
                 product: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
@@ -572,7 +586,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         await prisma.purchaseSuggestion.deleteMany({
             where: {
                 product: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
@@ -581,7 +595,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         await prisma.consumptionAnomaly.deleteMany({
             where: {
                 product: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
@@ -590,14 +604,14 @@ export async function productRoutes(fastify: FastifyInstance) {
         await prisma.portioningProcess.deleteMany({
             where: {
                 rawProduct: {
-                    restaurantId,
+                    organizationId,
                 },
             },
         });
 
         // 8. Finally, delete all products
         const result = await prisma.product.deleteMany({
-            where: { restaurantId },
+            where: { organizationId },
         });
 
         const response: ApiResponse = {

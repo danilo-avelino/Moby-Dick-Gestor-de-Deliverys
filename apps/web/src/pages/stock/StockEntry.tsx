@@ -19,8 +19,7 @@ interface EntryItem {
 export default function StockEntry() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
-    const [supplierId, setSupplierId] = useState('');
-    const [invoiceNumber, setInvoiceNumber] = useState('');
+
     const [items, setItems] = useState<EntryItem[]>([]);
     const [selectedProduct, setSelectedProduct] = useState('');
 
@@ -29,10 +28,7 @@ export default function StockEntry() {
         queryFn: () => api.get('/api/products?limit=100').then((r) => r.data.data.data),
     });
 
-    const { data: suppliers } = useQuery({
-        queryKey: ['suppliers'],
-        queryFn: () => api.get('/api/suppliers').then((r) => r.data.data),
-    });
+
 
     const mutation = useMutation({
         mutationFn: (data: any) => api.post('/api/stock/movements/bulk-entry', data),
@@ -85,8 +81,6 @@ export default function StockEntry() {
             return;
         }
         mutation.mutate({
-            supplierId: supplierId || undefined,
-            invoiceNumber: invoiceNumber || undefined,
             items: items.map((i) => ({
                 productId: i.productId,
                 quantity: i.quantity,
@@ -110,30 +104,7 @@ export default function StockEntry() {
                 </div>
             </div>
 
-            {/* Header Info */}
-            <div className="glass-card">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="label">Fornecedor</label>
-                        <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className="input">
-                            <option value="">Selecione...</option>
-                            {(suppliers || []).map((s: any) => (
-                                <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <label className="label">Nota Fiscal</label>
-                        <input
-                            type="text"
-                            value={invoiceNumber}
-                            onChange={(e) => setInvoiceNumber(e.target.value)}
-                            className="input"
-                            placeholder="NF-123456"
-                        />
-                    </div>
-                </div>
-            </div>
+
 
             {/* Add Product */}
             <div className="glass-card">
