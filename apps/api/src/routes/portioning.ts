@@ -1,18 +1,18 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
 export async function portioningRoutes(fastify: FastifyInstance) {
     // List portioning processes
     fastify.get('/processes', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: { tags: ['Portioning'], summary: 'List portioning processes', security: [{ bearerAuth: [] }] },
     }, async (request, reply) => {
         const processes = await prisma.portioningProcess.findMany({
-            where: { restaurantId: request.user!.restaurantId },
+            where: { restaurantId: request.user!.costCenterId },
             include: {
                 rawProduct: { select: { id: true, name: true, baseUnit: true } },
                 outputProduct: { select: { id: true, name: true, baseUnit: true } },
@@ -25,12 +25,12 @@ export async function portioningRoutes(fastify: FastifyInstance) {
 
     // Create process
     fastify.post<{ Body: { name: string; rawProductId: string; outputProductId?: string; yieldPercent: number } }>('/processes', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
     }, async (request, reply) => {
         const { name, rawProductId, outputProductId, yieldPercent } = request.body;
         const process = await prisma.portioningProcess.create({
             data: {
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 name, rawProductId, outputProductId,
                 yieldPercent, wastePercent: 100 - yieldPercent,
             },
@@ -40,12 +40,12 @@ export async function portioningRoutes(fastify: FastifyInstance) {
 
     // Record batch
     fastify.post<{ Body: { processId: string; rawQuantity: number; rawUnit: string; outputQuantity: number } }>('/batches', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
     }, async (request, reply) => {
         const { processId, rawQuantity, rawUnit, outputQuantity } = request.body;
 
         const process = await prisma.portioningProcess.findFirst({
-            where: { id: processId, restaurantId: request.user!.restaurantId },
+            where: { id: processId, restaurantId: request.user!.costCenterId },
             include: { rawProduct: true },
         });
         if (!process) throw errors.notFound('Process not found');
@@ -81,7 +81,7 @@ export async function portioningRoutes(fastify: FastifyInstance) {
 
     // Get batches history
     fastify.get<{ Params: { processId: string } }>('/processes/:processId/batches', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
     }, async (request, reply) => {
         const batches = await prisma.portioningBatch.findMany({
             where: { processId: request.params.processId },

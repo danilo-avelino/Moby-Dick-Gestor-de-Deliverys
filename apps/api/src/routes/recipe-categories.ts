@@ -8,10 +8,10 @@ export async function recipeCategoriesRoutes(app: FastifyInstance) {
 
     // List categories with counts
     app.get('/', async (request, reply) => {
-        const { restaurantId } = request.user!;
+        const { organizationId } = request.user!;
 
         const categories = await prisma.recipeCategory.findMany({
-            where: { restaurantId },
+            where: { organizationId },
             include: {
                 recipes: {
                     select: { status: true }
@@ -37,13 +37,13 @@ export async function recipeCategoriesRoutes(app: FastifyInstance) {
         });
 
         const { name } = schema.parse(req.body);
-        const { restaurantId } = req.user!;
+        const { organizationId } = req.user!;
 
         // Check duplicate
         const existing = await prisma.recipeCategory.findUnique({
             where: {
-                restaurantId_name: {
-                    restaurantId,
+                organizationId_name: {
+                    organizationId: organizationId!,
                     name
                 }
             }
@@ -54,7 +54,7 @@ export async function recipeCategoriesRoutes(app: FastifyInstance) {
         }
 
         const category = await prisma.recipeCategory.create({
-            data: { name, restaurantId }
+            data: { name, organizationId: organizationId! }
         });
 
         return category;
@@ -63,7 +63,7 @@ export async function recipeCategoriesRoutes(app: FastifyInstance) {
     // Delete category
     app.delete('/:id', async (req, reply) => {
         const { id } = req.params as { id: string };
-        const { restaurantId, role } = req.user!;
+        const { organizationId, role } = req.user!;
 
         // Only DIRETOR can delete categories
         if (role !== 'DIRETOR' && role !== 'SUPER_ADMIN') {
@@ -72,7 +72,7 @@ export async function recipeCategoriesRoutes(app: FastifyInstance) {
 
         // Check ownership
         const cat = await prisma.recipeCategory.findFirst({
-            where: { id, restaurantId }
+            where: { id, organizationId }
         });
 
         if (!cat) {

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -15,7 +15,7 @@ const createCategorySchema = z.object({
 export async function categoryRoutes(fastify: FastifyInstance) {
     // List categories (tree structure)
     fastify.get('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Categories'],
             summary: 'List categories',
@@ -24,7 +24,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const categories = await prisma.productCategory.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId!,
                 parentId: null, // Only root categories
             },
             include: {
@@ -50,7 +50,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
 
     // Get flat list of categories
     fastify.get('/flat', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Categories'],
             summary: 'List categories (flat)',
@@ -59,7 +59,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const categories = await prisma.productCategory.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId!,
             },
             include: {
                 _count: { select: { products: true, recipes: true } },
@@ -77,7 +77,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
 
     // Create category
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Categories'],
             summary: 'Create category',
@@ -91,7 +91,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
             const parent = await prisma.productCategory.findFirst({
                 where: {
                     id: body.parentId,
-                    restaurantId: request.user!.restaurantId,
+                    organizationId: request.user!.organizationId!,
                 },
             });
             if (!parent) {
@@ -102,7 +102,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
         const category = await prisma.productCategory.create({
             data: {
                 ...body,
-                restaurantId: request.user!.restaurantId!,
+                organizationId: request.user!.organizationId!,
             },
         });
 
@@ -116,7 +116,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
 
     // Update category
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Categories'],
             summary: 'Update category',
@@ -128,7 +128,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
         const existing = await prisma.productCategory.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId!,
             },
         });
 
@@ -156,7 +156,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
 
     // Delete category
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [authenticate],
         schema: {
             tags: ['Categories'],
             summary: 'Delete category',
@@ -166,7 +166,7 @@ export async function categoryRoutes(fastify: FastifyInstance) {
         const existing = await prisma.productCategory.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                organizationId: request.user!.organizationId!,
             },
             include: {
                 _count: { select: { products: true, children: true } },

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -25,18 +25,22 @@ const closeSessionSchema = z.object({
 export async function cashSessionRoutes(fastify: FastifyInstance) {
     // Get current session
     fastify.get('/current', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'Get current cash session',
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const restaurantId = request.user?.restaurantId;
+        const restaurantId = request.user?.costCenterId;
+
+        if (!restaurantId) {
+            return reply.send({ success: true, data: null });
+        }
 
         const session = await prisma.cashSession.findFirst({
             where: {
-                restaurantId: restaurantId!,
+                restaurantId: restaurantId,
                 status: 'ABERTO',
             },
             include: {
@@ -70,7 +74,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
     // Open cash session
     fastify.post('/open', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'Open cash session',
@@ -78,7 +82,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const body = openSessionSchema.parse(request.body);
-        const restaurantId = request.user!.restaurantId!;
+        const restaurantId = request.user!.costCenterId!;
 
         // Check if there's already an open session
         const existingSession = await prisma.cashSession.findFirst({
@@ -121,7 +125,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
     // Close cash session
     fastify.post('/close', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'Close cash session',
@@ -129,7 +133,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const body = closeSessionSchema.parse(request.body);
-        const restaurantId = request.user!.restaurantId!;
+        const restaurantId = request.user!.costCenterId!;
 
         const session = await prisma.cashSession.findFirst({
             where: {
@@ -177,7 +181,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
     // Add movement (sangria/suprimento)
     fastify.post('/movements', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'Add cash movement (sangria/suprimento)',
@@ -185,7 +189,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const body = movementSchema.parse(request.body);
-        const restaurantId = request.user!.restaurantId!;
+        const restaurantId = request.user!.costCenterId!;
 
         const session = await prisma.cashSession.findFirst({
             where: {
@@ -240,14 +244,14 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
     // List movements for current session
     fastify.get('/movements', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'List movements for current session',
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const restaurantId = request.user?.restaurantId;
+        const restaurantId = request.user?.costCenterId;
 
         const session = await prisma.cashSession.findFirst({
             where: {
@@ -294,7 +298,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
             endDate?: string;
         };
     }>('/history', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'Get cash session history',
@@ -306,8 +310,24 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = { status: 'FECHADO' };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+
+        // STRICT FILTER
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
+        } else if (request.user?.organizationId) {
+            // Assuming sessions link to restaurants which link to orgs. 
+            // CashSession model usually has restaurantId.
+            // We can filter by `restaurant: { organizationId: ... }` if relation exists?
+            // Schema check: CashSession -> Restaurant exists.
+            where.restaurant = { organizationId: request.user.organizationId };
+        } else {
+            return reply.send({
+                success: true,
+                data: {
+                    data: [],
+                    pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false }
+                }
+            });
         }
 
         if (request.query.startDate) {
@@ -359,7 +379,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
     // Get specific session details
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Caixa'],
             summary: 'Get session details',
@@ -367,8 +387,8 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const session = await prisma.cashSession.findFirst({

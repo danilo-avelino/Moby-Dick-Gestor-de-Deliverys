@@ -139,7 +139,11 @@ export interface UserDTO {
     avatarUrl?: string;
     role: UserRole;
     restaurantId?: string;
+    organizationId?: string | null;
+    scope?: 'ORG' | 'RESTAURANTS';
     restaurant?: RestaurantDTO;
+    permissions?: { allowedRestaurantIds: string[] };
+    impersonatedBy?: string;
     createdAt: string;
 }
 

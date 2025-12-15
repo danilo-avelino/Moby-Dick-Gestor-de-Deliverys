@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { InventoryService } from '../services/inventory.service';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
@@ -17,7 +17,7 @@ const updateCountSchema = z.object({
 export async function inventoryRoutes(fastify: FastifyInstance) {
     // Start Inventory
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Start new inventory session',
@@ -25,10 +25,10 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
         }
     }, async (request, reply) => {
         const body = startInventorySchema.parse(request.body);
-        const { restaurantId, id: userId } = request.user!;
+        const { costCenterId, organizationId, id: userId } = request.user!;
 
         try {
-            const session = await InventoryService.startInventory(restaurantId, userId, body.notes);
+            const session = await InventoryService.startInventory(costCenterId!, organizationId!, userId, body.notes);
             return reply.send({ success: true, data: session });
         } catch (error: any) {
             throw errors.conflict(error.message);
@@ -37,37 +37,37 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
 
     // Get Active Inventory
     fastify.get('/active', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Get active inventory session',
             security: [{ bearerAuth: [] }]
         }
     }, async (request, reply) => {
-        const { restaurantId } = request.user!;
-        const session = await InventoryService.getActiveInventory(restaurantId);
+        const { costCenterId } = request.user!;
+        const session = await InventoryService.getActiveInventory(costCenterId!);
 
         return reply.send({ success: true, data: session });
     });
 
     // Get History
     fastify.get('/history', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Get inventory history',
             security: [{ bearerAuth: [] }]
         }
     }, async (request, reply) => {
-        const { restaurantId } = request.user!;
-        const history = await InventoryService.getHistory(restaurantId);
+        const { costCenterId } = request.user!;
+        const history = await InventoryService.getHistory(costCenterId!);
 
         return reply.send({ success: true, data: history });
     });
 
     // Get Inventory Details (Items)
     fastify.get('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Get inventory details',
@@ -84,7 +84,7 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
 
     // Update Item Count
     fastify.post('/:id/count', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Update item count',
@@ -100,7 +100,7 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
 
     // Finish Inventory
     fastify.post('/:id/finish', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Finish inventory session',
@@ -120,7 +120,7 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
     });
     // Generate Share Token
     fastify.post('/:id/share', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Inventory'],
             summary: 'Generate share token',

@@ -26,6 +26,91 @@ enum UserRole {
   LIDER_DESPACHO
 }
 
+enum UserScope {
+  ORG
+  RESTAURANTS
+}
+
+model Organization {
+  id              String      @id @default(cuid())
+  name            String
+  slug            String      @unique // URL friendly identifier
+  
+  // Organization Master/Owner (can be null if system owned)
+  ownerId         String?
+  
+  status          String      @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  costCenters     CostCenter[]
+  users           User[]
+  impersonationLogs AdminImpersonationLog[]
+  impersonationSessions AdminImpersonationSession[]
+  events          Event[]
+
+  // RLS Back-relations
+  productCategories ProductCategory[]
+  recipes           Recipe[]
+  recipeCategories  RecipeCategory[]
+  products          Product[]
+  suppliers         Supplier[]
+}
+
+model UserCostCenterAccess {
+  id              String      @id @default(cuid())
+  
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  costCenterId    String
+  costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId  String
+  
+  createdAt       DateTime    @default(now())
+  
+  @@unique([userId, costCenterId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+
+model AdminImpersonationSession {
+  id              String      @id @default(cuid())
+  
+  systemMasterUserId String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  
+  @@index([systemMasterUserId])
+}
+
+model AdminImpersonationLog {
+  id              String      @id @default(cuid())
+  
+  systemMasterUserId String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  action          String      // START, STOP, ACTION
+  
+  metadata        Json?
+  
+  timestamp       DateTime    @default(now())
+  
+  @@index([organizationId])
+  @@index([systemMasterUserId])
+}
+
 model User {
   id                String    @id @default(cuid())
   email             String    @unique
@@ -35,14 +120,19 @@ model User {
   phone             String?
   avatarUrl         String?
   role              UserRole  @default(STAFF)
+  scope             UserScope @default(RESTAURANTS)
   isActive          Boolean   @default(true)
   emailVerified     Boolean   @default(false)
   mfaEnabled        Boolean   @default(false)
   mfaSecret         String?
   
   // Multi-tenancy
-  restaurantId      String?
-  restaurant        Restaurant? @relation(fields: [restaurantId], references: [id], onDelete: SetNull)
+  organizationId    String?    // Start optional for backfill
+  organization      Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  
+  costCenterId      String?
+  costCenter        CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  costCenterAccess  UserCostCenterAccess[]
   
   // Timestamps
   createdAt         DateTime  @default(now())
@@ -75,7 +165,8 @@ model User {
   purchaseListItemsConfirmed PurchaseListItem[]  @relation("PurchaseListItemConfirmer")
 
   @@index([email])
-  @@index([restaurantId])
+  @@index([costCenterId])
+  @@index([organizationId])
 }
 
 model Session {
@@ -93,8 +184,12 @@ model Session {
   @@index([token])
 }
 
-model Restaurant {
+model CostCenter {
   id              String    @id @default(cuid())
+  // Multi-tenancy
+  organizationId  String?    // Start optional for backfill
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   name            String
   tradeName       String?
   cnpj            String?   @unique
@@ -136,11 +231,13 @@ model Restaurant {
   
   // Relations
   users           User[]
+  userAccess      UserCostCenterAccess[]
   integrations    Integration[]
-  products        Product[]
-  categories      ProductCategory[]
-  suppliers       Supplier[]
-  recipes         Recipe[]
+  // products        Product[] // REMOVED: Products are Org Global
+  // categories      ProductCategory[] // REMOVED
+  // suppliers       Supplier[] // REMOVED
+  // recipes         Recipe[] // REMOVED
+  
   cmvSnapshots    CMVSnapshot[]
   alerts          Alert[]
   alertRules      AlertRule[]
@@ -151,12 +248,12 @@ model Restaurant {
   consumptionAnomalies ConsumptionAnomaly[]
   orders          Order[]
   inventorySessions InventorySession[]
-  recipeCategories RecipeCategory[]
+  // recipeCategories RecipeCategory[] // REMOVED
   stockRequests    StockRequest[]
   stockRequestTemplates StockRequestTemplate[]
   
   // PDV Relations
-  customers       Customer[]
+  customers       Customer[] // Customers usually Global? Or per store? Keeping as relation for now but might need check.
   tables          RestaurantTable[]
   pdvOrders       PdvOrder[]      @relation("PdvOrders")
   cashSessions    CashSession[]
@@ -165,7 +262,9 @@ model Restaurant {
   purchaseLists   PurchaseList[]
   purchaseConfig  PurchaseConfig?
   
+  @@map("cost_centers")
   @@index([cnpj])
+  @@index([organizationId])
 }
 
 // ==========================================
@@ -174,8 +273,10 @@ model Restaurant {
 
 model Order {
   id                      String    @id @default(cuid())
-  restaurantId            String
-  restaurant              Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId            String
+  costCenter              CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId          String?
   
   externalId              String    // Order ID from logistics provider
   logisticsProvider       String    // "AGILIZONE", "FOODY", "IFOOD", etc.
@@ -203,8 +304,9 @@ model Order {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
   
-  @@unique([restaurantId, externalId, logisticsProvider])
-  @@index([restaurantId])
+  @@unique([costCenterId, externalId, logisticsProvider])
+  @@index([costCenterId])
+  @@index([organizationId])
   @@index([orderDatetime])
   @@index([logisticsProvider])
 }
@@ -235,8 +337,10 @@ enum IntegrationStatus {
 
 model Integration {
   id              String              @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId  String?
   
   platform        IntegrationPlatform
   name            String
@@ -272,9 +376,10 @@ model Integration {
   // Relations
   syncLogs        SyncLog[]
   
-  @@unique([restaurantId, platform, externalId])
-  @@index([restaurantId])
+  @@unique([costCenterId, platform, externalId])
+  @@index([costCenterId])
   @@index([status])
+  @@index([organizationId])
 }
 
 enum SyncType {
@@ -322,8 +427,7 @@ model SyncLog {
 
 model ProductCategory {
   id              String            @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // restaurantId removed - Categories are Org wide
   
   name            String
   description     String?
@@ -337,12 +441,15 @@ model ProductCategory {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   
+  organizationId  String?
+  organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   // Relations
   products        Product[]
   recipes         Recipe[]
   
-  @@unique([restaurantId, name, parentId])
-  @@index([restaurantId])
+  @@unique([organizationId, name, parentId]) // scoped by org now
+  @@index([organizationId])
 }
 
 enum UnitType {
@@ -354,8 +461,10 @@ enum UnitType {
 
 model Product {
   id                String            @id @default(cuid())
-  restaurantId      String
-  restaurant        Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // restaurantId removed - Products are Org wide
+  
+  organizationId    String?
+  organization      Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   
   sku               String?
   barcode           String?
@@ -370,7 +479,9 @@ model Product {
   unitType          UnitType          @default(UNIT)
   conversions       Json?             // { "g": 1000, "un": 0.1 } -> 1kg = 1000g = 10un
   
-  // Stock
+  // Stock - Note: Global Stock per Org? Or aggregate? 
+  // User Prompt: "Produtos e estoque são únicos por organização." -> Global Stock.
+  // So currentStock here is correct for the Org.
   currentStock      Float             @default(0)
   reorderPoint      Float?
   manualReorderPoint Float?
@@ -414,17 +525,19 @@ model Product {
   stockRequestTemplateItems StockRequestTemplateItem[]
   purchaseListItems PurchaseListItem[]
   
-  @@unique([restaurantId, sku])
-  @@unique([restaurantId, barcode])
-  @@index([restaurantId])
+  @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
+  @@index([organizationId])
   @@index([categoryId])
   @@index([name])
 }
 
 model Supplier {
   id              String      @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // restaurantId removed - Suppliers are Org wide
+  
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   
   name            String
   tradeName       String?
@@ -454,7 +567,7 @@ model Supplier {
   products        Product[]
   movements       StockMovement[]
   
-  @@index([restaurantId])
+  @@index([organizationId])
 }
 
 enum MovementType {
@@ -517,10 +630,13 @@ model StockMovement {
   
   createdAt           DateTime              @default(now())
   
+  organizationId      String?
+  
   @@index([productId])
   @@index([type])
   @@index([createdAt])
   @@index([referenceType, referenceId])
+  @@index([organizationId])
 }
 
 model StockBatch {
@@ -540,8 +656,11 @@ model StockBatch {
   
   movements       StockMovement[]
   
+  organizationId  String?
+  
   @@index([productId])
   @@index([expirationDate])
+  @@index([organizationId])
 }
 
 // ==========================================
@@ -563,8 +682,7 @@ enum RecipeStatus {
 
 model RecipeCategory {
   id              String      @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // restaurantId removed - Recipe Categories are Org wide
   
   name            String
   
@@ -573,14 +691,19 @@ model RecipeCategory {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  @@unique([restaurantId, name])
-  @@index([restaurantId])
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
 }
 
 model Recipe {
   id              String            @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  // restaurantId removed - Recipes are Org wide
+  
+  organizationId  String?
+  organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   
   name            String
   description     String?
@@ -644,9 +767,9 @@ model Recipe {
   portioningBatches PortioningBatch[]
   usedAsIngredient RecipeIngredient[] @relation("SubRecipe")
   
-  @@index([restaurantId])
   @@index([recipeCategoryId])
   @@index([name])
+  @@index([organizationId])
 }
 
 enum IngredientType {
@@ -730,8 +853,8 @@ model PricingSuggestion {
 
 model PortioningProcess {
   id              String            @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   name            String
   description     String?
@@ -762,7 +885,10 @@ model PortioningProcess {
   // Relations
   // batches         PortioningBatch[] // Deprecated relationship in favor of Recipe? Keeping for now.
   
-  @@index([restaurantId])
+  organizationId  String?
+  
+  @@index([costCenterId])
+  @@index([organizationId])
 }
 
 model PortioningBatch {
@@ -808,8 +934,8 @@ model PortioningBatch {
 
 model CMVSnapshot {
   id                  String          @id @default(cuid())
-  restaurantId        String
-  restaurant          Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId        String
+  costCenter          CostCenter      @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   date                DateTime        @db.Date
   
@@ -835,8 +961,8 @@ model CMVSnapshot {
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   
-  @@unique([restaurantId, date])
-  @@index([restaurantId])
+  @@unique([costCenterId, date])
+  @@index([costCenterId])
   @@index([date])
 }
 
@@ -846,8 +972,8 @@ model CMVSnapshot {
 
 model MenuAnalysis {
   id              String            @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   periodStart     DateTime
   periodEnd       DateTime
@@ -866,7 +992,7 @@ model MenuAnalysis {
   // Relations
   items           ItemPerformance[]
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([periodStart, periodEnd])
 }
 
@@ -919,7 +1045,7 @@ model ItemPerformance {
   
   // Recommendations
   recommendedAction     RecommendedAction?
-  actionReasoning       String?
+  actionReasonning       String?
   
   @@index([analysisId])
   @@index([recipeId])
@@ -951,8 +1077,8 @@ enum AlertSeverity {
 
 model Alert {
   id              String        @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   type            AlertType
   severity        AlertSeverity @default(MEDIUM)
@@ -971,7 +1097,7 @@ model Alert {
   createdAt       DateTime      @default(now())
   expiresAt       DateTime?
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([type])
   @@index([isRead])
   @@index([createdAt])
@@ -986,8 +1112,8 @@ enum NotificationChannel {
 
 model AlertRule {
   id                    String                @id @default(cuid())
-  restaurantId          String
-  restaurant            Restaurant            @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId          String
+  costCenter            CostCenter            @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   type                  AlertType
   name                  String
@@ -1003,7 +1129,7 @@ model AlertRule {
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([type])
 }
 
@@ -1020,8 +1146,8 @@ enum SuggestionPriority {
 
 model PurchaseSuggestion {
   id                    String              @id @default(cuid())
-  restaurantId          String
-  restaurant            Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId          String
+  costCenter            CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   productId             String
   product               Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1054,7 +1180,7 @@ model PurchaseSuggestion {
   generatedAt           DateTime            @default(now())
   expiresAt             DateTime?
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([productId])
   @@index([priority])
 }
@@ -1069,8 +1195,8 @@ enum AnomalyType {
 
 model ConsumptionAnomaly {
   id              String        @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   productId       String
   product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1097,7 +1223,7 @@ model ConsumptionAnomaly {
   
   detectedAt      DateTime      @default(now())
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([productId])
   @@index([anomalyType])
 }
@@ -1126,8 +1252,8 @@ enum GoalPeriod {
 
 model Goal {
   id              String      @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   // Target
   userId          String?
@@ -1159,7 +1285,7 @@ model Goal {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([userId])
   @@index([periodStart, periodEnd])
 }
@@ -1232,8 +1358,8 @@ model AuditLog {
 
 model InventorySession {
   id            String            @id @default(cuid())
-  restaurantId  String
-  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId  String
+  costCenter    CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   status        InventoryStatus   @default(OPEN)
   startDate     DateTime          @default(now())
@@ -1253,7 +1379,7 @@ model InventorySession {
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 
-  @@index([restaurantId])
+  @@index([costCenterId])
 }
 
 model InventoryItem {
@@ -1309,8 +1435,8 @@ enum WorkShift {
 model StockRequest {
   id                String              @id @default(cuid())
   code              String              // Friendly ID like REQ-001
-  restaurantId      String
-  restaurant        Restaurant          @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId      String
+  costCenter        CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
 
   shift             WorkShift           @default(DAY)
 
@@ -1330,11 +1456,14 @@ model StockRequest {
   // Relations
   items             StockRequestItem[]
   comments          StockRequestComment[]
+  
+  organizationId    String?
 
-  @@unique([restaurantId, code])
-  @@index([restaurantId])
+  @@unique([costCenterId, code])
+  @@index([costCenterId])
   @@index([createdByUserId])
   @@index([status])
+  @@index([organizationId])
 }
 
 model StockRequestItem {
@@ -1377,8 +1506,8 @@ model StockRequestComment {
 
 model StockRequestTemplate {
   id                String        @id @default(cuid())
-  restaurantId      String
-  restaurant        Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId      String
+  costCenter        CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
 
   name              String?       // "Lista Padrão", "Lista Segunda-feira", etc.
   
@@ -1390,8 +1519,11 @@ model StockRequestTemplate {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  @@index([restaurantId])
+  organizationId    String?
+
+  @@index([costCenterId])
   @@index([createdByUserId])
+  @@index([organizationId])
 }
 
 model StockRequestTemplateItem {
@@ -1469,11 +1601,70 @@ enum CashSessionStatus {
   FECHADO
 }
 
+model CashSession {
+  id              String            @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+
+  status          CashSessionStatus @default(ABERTO)
+  openedAt        DateTime          @default(now())
+  closedAt        DateTime?
+
+  openedByUserId  String
+  openedBy        User              @relation("CashSessionOpener", fields: [openedByUserId], references: [id], onDelete: Cascade)
+
+  closedByUserId  String?
+  closedBy        User?             @relation("CashSessionCloser", fields: [closedByUserId], references: [id], onDelete: SetNull)
+
+  initialCash     Float             @default(0)
+  finalCash       Float?
+  totalSales      Float             @default(0)
+  totalWithdrawals Float            @default(0)
+  totalSupplies   Float             @default(0)
+  totalAdjustments Float            @default(0)
+
+  notes           String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  movements       CashMovement[]
+  orders          PdvOrder[]
+
+  organizationId  String?
+
+  @@index([costCenterId])
+  @@index([openedByUserId])
+  @@index([closedByUserId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+model CashMovement {
+  id              String            @id @default(cuid())
+  cashSessionId   String
+  cashSession     CashSession       @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+
+  type            CashMovementType
+  amount          Float
+  description     String?
+
+  createdByUserId String?
+  createdBy       User?             @relation("CashMovements", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime          @default(now())
+
+  @@index([cashSessionId])
+  @@index([type])
+  @@index([createdByUserId])
+}
+
 // Customer for PDV
 model Customer {
   id              String            @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   name            String
   phone           String?
@@ -1490,7 +1681,10 @@ model Customer {
   addresses       CustomerAddress[]
   orders          PdvOrder[]
   
-  @@index([restaurantId])
+  organizationId  String?
+  
+  @@index([costCenterId])
+  @@index([organizationId])
   @@index([phone])
   @@index([name])
 }
@@ -1524,8 +1718,8 @@ model CustomerAddress {
 // Tables for dine-in orders
 model RestaurantTable {
   id              String        @id @default(cuid())
-  restaurantId    String
-  restaurant      Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId    String
+  costCenter      CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   identifier      String        // "Mesa 1", "Mesa 2", "Balcão 1", etc.
   capacity        Int           @default(4)
@@ -1541,8 +1735,8 @@ model RestaurantTable {
   // Relations
   orders          PdvOrder[]
   
-  @@unique([restaurantId, identifier])
-  @@index([restaurantId])
+  @@unique([costCenterId, identifier])
+  @@index([costCenterId])
   @@index([status])
 }
 
@@ -1550,8 +1744,8 @@ model RestaurantTable {
 model PdvOrder {
   id                  String            @id @default(cuid())
   code                String            // Friendly code like "001", "002"
-  restaurantId        String
-  restaurant          Restaurant        @relation("PdvOrders", fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId        String
+  costCenter          CostCenter        @relation("PdvOrders", fields: [costCenterId], references: [id], onDelete: Cascade)
   
   // Type and status
   orderType           PdvOrderType
@@ -1608,12 +1802,20 @@ model PdvOrder {
   payments            PdvPayment[]
   statusHistory       PdvOrderStatusHistory[]
   
-  @@unique([restaurantId, code])
-  @@index([restaurantId])
+  // Cash Session Link
+  cashSessionId       String?
+  cashSession         CashSession?      @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  
+  organizationId      String?
+  
+  @@unique([costCenterId, code])
+  @@index([costCenterId])
   @@index([status])
   @@index([orderType])
   @@index([createdAt])
   @@index([customerId])
+  @@index([cashSessionId])
+  @@index([organizationId])
 }
 
 model PdvOrderItem {
@@ -1622,8 +1824,11 @@ model PdvOrderItem {
   order               PdvOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   
   // Product reference
+  // Product reference
   productId           String?
   recipeId            String?
+  
+  // Product reference
   
   // Snapshots
   productName         String
@@ -1699,78 +1904,7 @@ model PdvPayment {
   @@index([method])
 }
 
-// Cash Session (Caixa)
-model CashSession {
-  id                  String            @id @default(cuid())
-  restaurantId        String
-  restaurant          Restaurant        @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
-  
-  status              CashSessionStatus @default(ABERTO)
-  
-  // Opening
-  openedByUserId      String
-  openedBy            User              @relation("CashSessionOpener", fields: [openedByUserId], references: [id], onDelete: Cascade)
-  openedAt            DateTime          @default(now())
-  openingBalance      Float             @default(0)
-  
-  // Closing
-  closedByUserId      String?
-  closedBy            User?             @relation("CashSessionCloser", fields: [closedByUserId], references: [id], onDelete: SetNull)
-  closedAt            DateTime?
-  closingBalance      Float?
-  
-  // Calculated values (updated on movements)
-  totalSales          Float             @default(0)
-  totalCashSales      Float             @default(0)
-  totalCardSales      Float             @default(0)
-  totalPixSales       Float             @default(0)
-  totalOtherSales     Float             @default(0)
-  totalSangrias       Float             @default(0)
-  totalSuprimentos    Float             @default(0)
-  
-  expectedBalance     Float             @default(0)
-  difference          Float?            // Actual - Expected (on close)
-  
-  notes               String?
-  
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  
-  // Relations
-  movements           CashMovement[]
-  
-  @@index([restaurantId])
-  @@index([status])
-  @@index([openedAt])
-}
-
-model CashMovement {
-  id                  String            @id @default(cuid())
-  cashSessionId       String
-  cashSession         CashSession       @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
-  
-  type                CashMovementType
-  
-  description         String
-  amount              Float
-  
-  // Payment method (for sales)
-  paymentMethod       PaymentMethod?
-  
-  // Reference to order (for sales)
-  orderId             String?
-  orderCode           String?
-  
-  // Audit
-  userId              String
-  user                User              @relation("CashMovements", fields: [userId], references: [id], onDelete: Cascade)
-  
-  createdAt           DateTime          @default(now())
-  
-  @@index([cashSessionId])
-  @@index([type])
-  @@index([createdAt])
-}
+// DELETED DUPLICATE CashSession and CashMovement (Moved to line 1586)
 
 // ==========================================
 // PURCHASE LISTS (Lista de Compras)
@@ -1811,8 +1945,8 @@ enum RecurrenceType {
 
 model PurchaseList {
   id                String                  @id @default(cuid())
-  restaurantId      String
-  restaurant        Restaurant              @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId      String
+  costCenter        CostCenter              @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   triggerType       PurchaseListTriggerType
   description       String?
@@ -1822,13 +1956,17 @@ model PurchaseList {
   createdById       String
   createdBy         User                    @relation("PurchaseListCreator", fields: [createdById], references: [id])
   
+  organizationId    String?
+  
+  @@index([organizationId])
+  
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
   completedAt       DateTime?
   
   items             PurchaseListItem[]
   
-  @@index([restaurantId])
+  @@index([costCenterId])
   @@index([status])
   @@index([createdAt])
 }
@@ -1869,8 +2007,8 @@ model PurchaseListItem {
 
 model PurchaseConfig {
   id                              String          @id @default(cuid())
-  restaurantId                    String          @unique
-  restaurant                      Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  costCenterId                    String          @unique
+  costCenter                      CostCenter      @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
   // Post-inventory trigger
   triggerPostInventory            Boolean         @default(false)
@@ -1892,4 +2030,109 @@ model PurchaseConfig {
   
   createdAt                       DateTime        @default(now())
   updatedAt                       DateTime        @updatedAt
+}
+
+// ==========================================
+// EVENTS & TICKETING (Phase 2 - Platform)
+// ==========================================
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  ENDED
+}
+
+model Event {
+  id              String      @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  slug            String      // URL friendly
+  description     String?
+  bannerUrl       String?
+
+  status          EventStatus @default(DRAFT)
+
+  startsAt        DateTime
+  endsAt          DateTime?
+
+  // Location
+  city            String?
+  state           String?
+  locationName    String?
+  address         String?
+
+  // Metrics
+  ticketsSold     Int         @default(0)
+  revenue         Float       @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tickets         Ticket[]
+  
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([startsAt])
+}
+
+model Ticket {
+  id              String      @id @default(cuid())
+  eventId         String
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  name            String      // e.g. "VIP", "General"
+  description     String?
+  price           Float
+  currency        String      @default("BRL")
+
+  quantityTotal   Int
+  quantitySold    Int         @default(0)
+
+  isActive        Boolean     @default(true)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([eventId])
+}
+
+// ==========================================
+// PLATFORM LOGS
+// ==========================================
+
+model PlatformAuditLog {
+  id              String      @id @default(cuid())
+  actorUserId     String      // Who did it (System Master)
+  
+  action          String      // e.g. IMPERSONATE, SUSPEND_ORG
+  targetType      String      // ORG, USER, EVENT
+  targetId        String
+  
+  metadata        Json?
+  
+  createdAt       DateTime    @default(now())
+
+  @@index([actorUserId])
+  @@index([targetId])
+}
+
+model WebhookLog {
+  id              String      @id @default(cuid())
+  organizationId  String?     // Nullable if system-wide
+  
+  provider        String      // Stripe, Iugu, etc.
+  status          String      // SUCCESS, FAILURE
+  endpoint        String
+  payload         Json?
+  response        Json?
+  
+  attempts        Int         @default(1)
+  lastError       String?
+  
+  createdAt       DateTime    @default(now())
+  
+  @@index([organizationId])
 }

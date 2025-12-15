@@ -170,7 +170,7 @@ function getUnitType(unidade: string): 'WEIGHT' | 'VOLUME' | 'UNIT' | 'LENGTH' {
  */
 export async function importStockFromExcel(
     buffer: Buffer,
-    restaurantId: string,
+    organizationId: string,
     options: {
         sobrescreverEstoqueAtual?: boolean;
     } = {}
@@ -259,14 +259,14 @@ export async function importStockFromExcel(
 
         // Pre-fetch existing categories
         const existingCategories = await prisma.productCategory.findMany({
-            where: { restaurantId },
+            where: { organizationId },
             select: { id: true, name: true },
         });
         existingCategories.forEach(cat => categoryCache.set(cat.name.toUpperCase(), cat.id));
 
         // Pre-fetch existing products
         const existingProducts = await prisma.product.findMany({
-            where: { restaurantId },
+            where: { organizationId },
             select: { id: true, name: true },
         });
         const productMap = new Map<string, string>();
@@ -347,7 +347,7 @@ export async function importStockFromExcel(
                 if (!categoryId) {
                     const newCategory = await prisma.productCategory.create({
                         data: {
-                            restaurantId,
+                            organizationId,
                             name: grupoInsumo,
                             description: `Categoria importada: ${grupoInsumo}`,
                         },
@@ -365,7 +365,7 @@ export async function importStockFromExcel(
                     // Create new product
                     const newProduct = await prisma.product.create({
                         data: {
-                            restaurantId,
+                            organizationId,
                             name: nomeInsumo,
                             categoryId,
                             baseUnit: estoqueAtual.unidade.toLowerCase(),
@@ -400,6 +400,7 @@ export async function importStockFromExcel(
                 await prisma.stockMovement.create({
                     data: {
                         productId,
+                        organizationId,
                         type: 'ADJUSTMENT',
                         quantity: estoqueAtual.quantidade,
                         unit: estoqueAtual.unidade.toLowerCase(),
@@ -432,7 +433,7 @@ export async function importStockFromExcel(
             // Find products that weren't in the import
             const productsToZero = await prisma.product.findMany({
                 where: {
-                    restaurantId,
+                    organizationId,
                     isActive: true,
                     id: { notIn: Array.from(importedProductIds) },
                 },
@@ -449,6 +450,7 @@ export async function importStockFromExcel(
                     await prisma.stockMovement.create({
                         data: {
                             productId: product.id,
+                            organizationId,
                             type: 'ADJUSTMENT',
                             quantity: product.currentStock,
                             unit: product.baseUnit,

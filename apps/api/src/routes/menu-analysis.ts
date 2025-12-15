@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -13,7 +13,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
             endDate?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Menu Analysis'],
             summary: 'Get menu analysis',
@@ -28,7 +28,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Find existing analysis
         let analysis = await prisma.menuAnalysis.findFirst({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 periodStart: { gte: startDate },
                 periodEnd: { lte: endDate },
             },
@@ -109,7 +109,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
             }>;
         };
     }>('/generate', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Menu Analysis'],
             summary: 'Generate menu analysis',
@@ -121,7 +121,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Get all active recipes
         const recipes = await prisma.recipe.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 isActive: true,
             },
             select: {
@@ -216,7 +216,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Delete old analysis for same period
         await prisma.menuAnalysis.deleteMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 periodStart: { gte: new Date(startDate) },
                 periodEnd: { lte: new Date(endDate) },
             },
@@ -225,7 +225,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Create new analysis
         const analysis = await prisma.menuAnalysis.create({
             data: {
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 periodStart: new Date(startDate),
                 periodEnd: new Date(endDate),
                 totalRevenue,
@@ -268,7 +268,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
 
     // Get ABC curve data
     fastify.get('/abc-curve', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Menu Analysis'],
             summary: 'Get ABC curve data',
@@ -276,7 +276,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const analysis = await prisma.menuAnalysis.findFirst({
-            where: { restaurantId: request.user!.restaurantId },
+            where: { restaurantId: request.user!.costCenterId },
             orderBy: { periodEnd: 'desc' },
             include: {
                 items: {
@@ -333,7 +333,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
 
     // Get Boston Matrix data
     fastify.get('/matrix', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Menu Analysis'],
             summary: 'Get Boston Matrix data',
@@ -341,7 +341,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const analysis = await prisma.menuAnalysis.findFirst({
-            where: { restaurantId: request.user!.restaurantId },
+            where: { restaurantId: request.user!.costCenterId },
             orderBy: { periodEnd: 'desc' },
             include: {
                 items: {

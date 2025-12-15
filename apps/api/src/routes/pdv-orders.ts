@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -64,18 +64,25 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
             type?: string;
         };
     }>('/recent', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Get recent orders for dashboard',
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
+    }, async (request, reply) => {
         const limit = Math.min(parseInt(request.query.limit || '50', 10), 100);
 
         const where: any = {};
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+
+        // STRICT MULTI-TENANCY FILTER
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
+        } else if (request.user?.organizationId) {
+            where.restaurant = { organizationId: request.user.organizationId };
+        } else {
+            return reply.send({ success: true, data: [] });
         }
 
         if (request.query.status) {
@@ -124,7 +131,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
             search?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'List orders with pagination',
@@ -136,8 +143,21 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = {};
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+
+        // STRICT MULTI-TENANCY FILTER
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
+        } else if (request.user?.organizationId) {
+            where.restaurant = { organizationId: request.user.organizationId };
+        } else {
+            // Return empty pagination
+            return reply.send({
+                success: true,
+                data: {
+                    data: [],
+                    pagination: { page, limit, total: 0, totalPages: 0, hasNext: false, hasPrev: false }
+                }
+            });
         }
 
         if (request.query.status) {
@@ -207,7 +227,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
     // Get single order
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Get order by ID',
@@ -215,8 +235,8 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({
@@ -255,7 +275,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
     // Create order
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Create new order',
@@ -263,7 +283,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const body = createOrderSchema.parse(request.body);
-        const restaurantId = request.user!.restaurantId!;
+        const restaurantId = request.user!.costCenterId!;
 
         // Generate order code
         const code = await generateOrderCode(restaurantId);
@@ -379,7 +399,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
     // Update order status
     fastify.patch<{ Params: { id: string } }>('/:id/status', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Update order status',
@@ -389,8 +409,8 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
         const body = updateStatusSchema.parse(request.body);
 
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({ where });
@@ -469,7 +489,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
     // Add item to existing order
     fastify.post<{ Params: { id: string } }>('/:id/items', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Add item to order',
@@ -494,8 +514,8 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
         const body = itemSchema.parse(request.body);
 
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({ where });
@@ -548,22 +568,36 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
     // Get order statistics
     fastify.get('/stats/summary', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV'],
             summary: 'Get PDV statistics',
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const restaurantId = request.user?.restaurantId;
+        const restaurantId = request.user?.costCenterId;
+
+        if (!restaurantId) {
+            // Stats require restaurant context (or aggressive aggregation logic which is complex)
+            // For now return zeros if no restaurant context
+            return reply.send({
+                success: true,
+                data: {
+                    todayOrders: 0,
+                    todayRevenue: 0,
+                    byStatus: {},
+                    byType: {}
+                }
+            });
+        }
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const where: any = { createdAt: { gte: today } };
-        if (restaurantId) {
-            where.restaurantId = restaurantId;
-        }
+        const where: any = {
+            createdAt: { gte: today },
+            restaurantId: restaurantId
+        };
 
         const [
             todayOrders,

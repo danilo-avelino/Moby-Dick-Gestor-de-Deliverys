@@ -321,7 +321,7 @@ function DetailModal({ requestId, onClose, userRole }: any) {
                     {/* THERMAL PRINT CONTAINER - Elgin i8 Optimized */}
                     {/* Hidden on screen, visible only during print */}
                     {/* ================================================== */}
-                    <div id="thermal-request-print">
+                    <div id="thermal-request-print" className="print-request">
                         {/* Header - Centered */}
                         <div className="thermal-header">
                             <div className="thermal-restaurant">MOBY DICK</div>
@@ -539,6 +539,13 @@ function DetailModal({ requestId, onClose, userRole }: any) {
                         font-family: 'Courier New', Courier, monospace !important;
                         font-size: 10pt !important;
                         line-height: 1.3 !important;
+                    }
+
+                    /* FORCE BOLD & BLACK FOR LEGIBILITY */
+                    .print-request,
+                    .print-request * {
+                        font-weight: 700 !important;
+                        color: #000000 !important;
                     }
 
                     /* Hide screen-only elements */

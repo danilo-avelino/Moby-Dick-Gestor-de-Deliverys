@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { importStockFromExcel } from '../services/stock-import.service';
 import type { ApiResponse } from 'types';
 
@@ -14,7 +14,7 @@ export async function stockImportRoutes(fastify: FastifyInstance) {
 
     // Import stock from Excel file
     fastify.post('/import', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Stock Import'],
             summary: 'Import stock from Excel file',
@@ -78,7 +78,7 @@ export async function stockImportRoutes(fastify: FastifyInstance) {
             }
 
             // Process the import
-            const result = await importStockFromExcel(buffer, request.user!.restaurantId!, {
+            const result = await importStockFromExcel(buffer, request.user!.organizationId!, {
                 sobrescreverEstoqueAtual,
             });
 
@@ -114,7 +114,7 @@ export async function stockImportRoutes(fastify: FastifyInstance) {
 
     // Get import template info
     fastify.get('/import/template', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Stock Import'],
             summary: 'Get import template information',

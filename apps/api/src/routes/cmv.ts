@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import type { ApiResponse } from 'types';
 
 export async function cmvRoutes(fastify: FastifyInstance) {
@@ -12,7 +12,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
             endDate?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['CMV'],
             summary: 'Get CMV summary',
@@ -34,7 +34,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
 
         const snapshots = await prisma.cMVSnapshot.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 date: {
                     gte: startDate,
                     lte: endDate,
@@ -63,7 +63,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
 
         const prevSnapshots = await prisma.cMVSnapshot.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 date: {
                     gte: prevStartDate,
                     lt: startDate,
@@ -79,8 +79,8 @@ export async function cmvRoutes(fastify: FastifyInstance) {
         const trend = trendPercent > 0.5 ? 'up' : trendPercent < -0.5 ? 'down' : 'stable';
 
         // Get restaurant target
-        const restaurant = await prisma.restaurant.findUnique({
-            where: { id: request.user!.restaurantId! },
+        const restaurant = await prisma.costCenter.findUnique({
+            where: { id: request.user!.costCenterId! },
             select: { targetCmvPercent: true, alertCmvThreshold: true },
         });
 
@@ -122,7 +122,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
 
     // Get today's CMV
     fastify.get('/today', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['CMV'],
             summary: 'Get today CMV',
@@ -134,7 +134,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
 
         let snapshot = await prisma.cMVSnapshot.findFirst({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 date: today,
             },
         });
@@ -146,7 +146,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
                 Promise.resolve(0),
                 prisma.stockMovement.aggregate({
                     where: {
-                        product: { restaurantId: request.user!.restaurantId },
+                        product: { restaurantId: request.user!.costCenterId },
                         type: { in: ['OUT', 'WASTE', 'PRODUCTION'] },
                         createdAt: { gte: today },
                     },
@@ -160,7 +160,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
 
             snapshot = {
                 id: 'temp',
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 date: today,
                 revenue,
                 orderCount: 0,
@@ -201,7 +201,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
     fastify.get<{
         Querystring: { startDate?: string; endDate?: string };
     }>('/by-category', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['CMV'],
             summary: 'Get CMV breakdown by category',
@@ -217,7 +217,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
         const movements = await prisma.stockMovement.groupBy({
             by: ['productId'],
             where: {
-                product: { restaurantId: request.user!.restaurantId },
+                product: { restaurantId: request.user!.costCenterId },
                 type: { in: ['OUT', 'PRODUCTION'] },
                 createdAt: {
                     gte: startDate,
@@ -282,7 +282,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
             theoreticalCogs?: number;
         };
     }>('/snapshot', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['CMV'],
             summary: 'Create or update daily snapshot',
@@ -299,7 +299,7 @@ export async function cmvRoutes(fastify: FastifyInstance) {
 
         const realCogsResult = await prisma.stockMovement.aggregate({
             where: {
-                product: { restaurantId: request.user!.restaurantId },
+                product: { restaurantId: request.user!.costCenterId },
                 type: { in: ['OUT', 'WASTE', 'PRODUCTION'] },
                 createdAt: {
                     gte: snapshotDate,
@@ -319,12 +319,12 @@ export async function cmvRoutes(fastify: FastifyInstance) {
         const snapshot = await prisma.cMVSnapshot.upsert({
             where: {
                 restaurantId_date: {
-                    restaurantId: request.user!.restaurantId!,
+                    restaurantId: request.user!.costCenterId!,
                     date: snapshotDate,
                 },
             },
             create: {
-                restaurantId: request.user!.restaurantId!,
+                restaurantId: request.user!.costCenterId!,
                 date: snapshotDate,
                 revenue,
                 orderCount,
@@ -350,15 +350,15 @@ export async function cmvRoutes(fastify: FastifyInstance) {
         });
 
         // Create alert if CMV is too high
-        const restaurant = await prisma.restaurant.findUnique({
-            where: { id: request.user!.restaurantId! },
+        const restaurant = await prisma.costCenter.findUnique({
+            where: { id: request.user!.costCenterId! },
             select: { alertCmvThreshold: true },
         });
 
         if (realPercent > (restaurant?.alertCmvThreshold || 35)) {
             await prisma.alert.create({
                 data: {
-                    restaurantId: request.user!.restaurantId!,
+                    restaurantId: request.user!.costCenterId!,
                     type: 'CMV_HIGH',
                     severity: realPercent > 40 ? 'CRITICAL' : 'HIGH',
                     title: 'CMV Acima da Meta',

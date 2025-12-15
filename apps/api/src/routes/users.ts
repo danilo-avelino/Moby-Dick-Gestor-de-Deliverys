@@ -13,16 +13,16 @@ const createUserSchema = z.object({
     email: z.string().email('Email inválido'),
     password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
     role: z.nativeEnum(UserRole),
-    restaurantId: z.string().optional().nullable(),
+    costCenterId: z.string().optional().nullable(),
     isActive: z.boolean().optional().default(true),
 }).refine(data => {
-    if (data.role === UserRole.CHEF_DE_COZINHA && !data.restaurantId) {
+    if (data.role === UserRole.CHEF_DE_COZINHA && !data.costCenterId) {
         return false;
     }
     return true;
 }, {
     message: "Restaurante é obrigatório para o cargo de Chef de Cozinha",
-    path: ["restaurantId"]
+    path: ["restaurantId"] // Keep path as restaurantId for frontend error mapping
 });
 
 // Schema for updating a user
@@ -31,13 +31,13 @@ const updateUserSchema = z.object({
     lastName: z.string().min(2).optional(),
     email: z.string().email().optional(),
     role: z.nativeEnum(UserRole).optional(),
-    restaurantId: z.string().optional().nullable(),
-    isActive: z.boolean().optional(),
+    costCenterId: z.string().optional().nullable(),
+    isActive: z.boolean().optional().default(true),
     password: z.string().min(6).optional(), // Optional reset
 }).refine(data => {
-    if (data.role === UserRole.CHEF_DE_COZINHA && !data.restaurantId) {
+    if (data.role === UserRole.CHEF_DE_COZINHA && !data.costCenterId) {
         // Only if role IS explicitly being set to Chef, OR if it's already Chef (handled in logic later, but Zod checks payload)
-        // If payload has role=Chef, it MUST have restaurantId.
+        // If payload has role=Chef, it MUST have costCenterId.
         return false;
     }
     return true;
@@ -60,11 +60,23 @@ export async function userRoutes(fastify: FastifyInstance) {
 
     // GET / - List users
     fastify.get('/', {
-        preHandler: [requireDiretor],
+        preHandler: [authenticate], // Check permission inside
     }, async (request, reply) => {
+        // Access Check: Admin/Director/SuperAdmin
+        if (!['SUPER_ADMIN', 'ADMIN', 'DIRETOR'].includes(request.user.role)) {
+            throw errors.forbidden('Acesso restrito');
+        }
+
         const { search, role, status, restaurantId } = request.query as { search?: string, role?: UserRole, status?: string, restaurantId?: string };
 
         const where: any = {};
+
+        // Scope by Organization
+        if (request.user.role !== 'SUPER_ADMIN') {
+            if (request.user.organizationId) {
+                where.organizationId = request.user.organizationId;
+            }
+        }
 
         if (search) {
             where.OR = [
@@ -83,7 +95,7 @@ export async function userRoutes(fastify: FastifyInstance) {
         }
 
         if (restaurantId) {
-            where.restaurantId = restaurantId;
+            where.costCenterId = restaurantId;
         }
 
         const users = await prisma.user.findMany({
@@ -97,7 +109,7 @@ export async function userRoutes(fastify: FastifyInstance) {
                 isActive: true,
                 lastLoginAt: true,
                 createdAt: true,
-                restaurant: {
+                costCenter: {
                     select: {
                         id: true,
                         name: true,
@@ -107,9 +119,15 @@ export async function userRoutes(fastify: FastifyInstance) {
             orderBy: { createdAt: 'desc' }
         });
 
+        const formattedUsers = users.map(u => ({
+            ...u,
+            restaurant: u.costCenter, // Map costCenter to restaurant for frontend
+            costCenter: undefined,
+        }));
+
         const response: ApiResponse = {
             success: true,
-            data: users,
+            data: formattedUsers,
         };
 
         return reply.send(response);
@@ -117,9 +135,21 @@ export async function userRoutes(fastify: FastifyInstance) {
 
     // POST / - Create User
     fastify.post('/', {
-        preHandler: [requireDiretor],
+        preHandler: [authenticate],
     }, async (request, reply) => {
-        const body = createUserSchema.parse(request.body);
+        // Access Check: Admin/Director/SuperAdmin
+        if (!['SUPER_ADMIN', 'ADMIN', 'DIRETOR'].includes(request.user.role)) {
+            throw errors.forbidden('Acesso restrito');
+        }
+
+        const rawBody = request.body as any;
+        // Map restaurantId to costCenterId before validation if needed, or rely on schema accepting costCenterId
+        // Frontend sends restaurantId, so let's map it.
+        const bodyToValidate = {
+            ...rawBody,
+            costCenterId: rawBody.restaurantId || rawBody.costCenterId
+        };
+        const body = createUserSchema.parse(bodyToValidate);
 
         // Check unique email
         const existing = await prisma.user.findUnique({ where: { email: body.email } });
@@ -129,6 +159,9 @@ export async function userRoutes(fastify: FastifyInstance) {
 
         const passwordHash = await bcrypt.hash(body.password, 10);
 
+        // Ensure Org ID
+        const organizationId = request.user.organizationId;
+
         const user = await prisma.user.create({
             data: {
                 email: body.email,
@@ -137,12 +170,21 @@ export async function userRoutes(fastify: FastifyInstance) {
                 passwordHash,
                 role: body.role,
                 isActive: body.isActive ?? true,
-                // Enforce creator's restaurant context if it exists (Organization inheritance)
-                restaurantId: request.user?.restaurantId || body.restaurantId || null,
+                costCenterId: body.costCenterId || null,
+                organizationId: organizationId
             }
         });
 
-        // Audit log could go here
+        // Create Access if restaurant assigned
+        if (user.costCenterId && organizationId) {
+            await prisma.userCostCenterAccess.create({
+                data: {
+                    userId: user.id,
+                    costCenterId: user.costCenterId,
+                    organizationId: organizationId
+                }
+            });
+        }
 
         const response: ApiResponse = {
             success: true,
@@ -161,12 +203,18 @@ export async function userRoutes(fastify: FastifyInstance) {
 
     // GET /:id - Get User Details
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireDiretor],
+        preHandler: [authenticate],
     }, async (request, reply) => {
         const { id } = request.params;
 
-        const user = await prisma.user.findUnique({
-            where: { id },
+        // Access check done via where query scoping
+        const where: any = { id };
+        if (request.user.role !== 'SUPER_ADMIN' && request.user.organizationId) {
+            where.organizationId = request.user.organizationId;
+        }
+
+        const user = await prisma.user.findFirst({
+            where,
             select: {
                 id: true,
                 firstName: true,
@@ -174,8 +222,8 @@ export async function userRoutes(fastify: FastifyInstance) {
                 email: true,
                 role: true,
                 isActive: true,
-                restaurantId: true,
-                restaurant: { select: { id: true, name: true } }
+                costCenterId: true,
+                costCenter: { select: { id: true, name: true } }
             }
         });
 
@@ -183,9 +231,17 @@ export async function userRoutes(fastify: FastifyInstance) {
             throw errors.notFound('Usuário não encontrado');
         }
 
+        const formattedUser = {
+            ...user,
+            restaurantId: user.costCenterId,
+            restaurant: user.costCenter,
+            costCenterId: undefined,
+            costCenter: undefined,
+        };
+
         const response: ApiResponse = {
             success: true,
-            data: user,
+            data: formattedUser,
         };
 
         return reply.send(response);
@@ -193,12 +249,28 @@ export async function userRoutes(fastify: FastifyInstance) {
 
     // PUT /:id - Update User
     fastify.put<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireDiretor],
+        preHandler: [authenticate],
     }, async (request, reply) => {
-        const { id } = request.params;
-        const body = updateUserSchema.parse(request.body);
+        // Access Check: Admin/Director/SuperAdmin
+        if (!['SUPER_ADMIN', 'ADMIN', 'DIRETOR'].includes(request.user.role)) {
+            throw errors.forbidden('Acesso restrito');
+        }
 
-        const currentUser = await prisma.user.findUnique({ where: { id } });
+        const { id } = request.params;
+        const rawBody = request.body as any;
+        const bodyToValidate = {
+            ...rawBody,
+            costCenterId: rawBody.restaurantId || rawBody.costCenterId
+        };
+        const body = updateUserSchema.parse(bodyToValidate);
+
+        // Ensure user belongs to same org
+        const where: any = { id };
+        if (request.user.role !== 'SUPER_ADMIN' && request.user.organizationId) {
+            where.organizationId = request.user.organizationId;
+        }
+
+        const currentUser = await prisma.user.findFirst({ where }); // Changed findUnique to findFirst for scope check
         if (!currentUser) {
             throw errors.notFound('Usuário não encontrado');
         }
@@ -211,46 +283,60 @@ export async function userRoutes(fastify: FastifyInstance) {
             }
         }
 
-        // Validate Chef Logic if only one field is changing/partial updates
+        // Validate Chef Logic
         const nextRole = body.role || currentUser.role;
-        const nextRestaurantId = body.restaurantId !== undefined ? body.restaurantId : currentUser.restaurantId;
+        const nextCostCenterId = body.costCenterId !== undefined ? body.costCenterId : currentUser.costCenterId;
 
-        if (nextRole === UserRole.CHEF_DE_COZINHA && !nextRestaurantId) {
+        if (nextRole === UserRole.CHEF_DE_COZINHA && !nextCostCenterId) {
             throw errors.badRequest('Obrigatório informar restaurante para Chef de Cozinha');
         }
 
-        // Prevent locking out all Directors (Last Director check)
-        if (currentUser.role === UserRole.DIRETOR && body.role && body.role !== UserRole.DIRETOR) {
-            const directorCount = await prisma.user.count({
-                where: { role: UserRole.DIRETOR, isActive: true }
+        // Prevent locking out all Directors/Admins
+        if ((currentUser.role === UserRole.DIRETOR || currentUser.role === UserRole.ADMIN) && body.role && body.role !== currentUser.role) {
+            const adminCount = await prisma.user.count({
+                where: {
+                    role: { in: [UserRole.DIRETOR, UserRole.ADMIN] },
+                    isActive: true,
+                    organizationId: currentUser.organizationId // Scoped check
+                }
             });
-            if (directorCount <= 1) {
-                throw errors.badRequest('Não é possível remover o último Diretor ativo do sistema.');
+            if (adminCount <= 1) {
+                throw errors.badRequest('Não é possível remover o último Administrador ativo da organização.');
             }
         }
 
         const dataToUpdate: any = {
             ...body,
-            restaurantId: nextRole === UserRole.CHEF_DE_COZINHA ? nextRestaurantId : (body.restaurantId === undefined ? undefined : body.restaurantId), // If changing role away from Chef, we might want to allow nulling restaurantId or keep it. 
+            costCenterId: nextRole === UserRole.CHEF_DE_COZINHA ? nextCostCenterId : (body.costCenterId === undefined ? undefined : body.costCenterId),
         };
+        delete dataToUpdate.restaurantId; // Ensure we don't try to save restaurantId if it leaked into body
 
-        // If password provided
         if (body.password) {
             dataToUpdate.passwordHash = await bcrypt.hash(body.password, 10);
             delete dataToUpdate.password;
-        }
-
-        // Clean up ID mismatch if role changed
-        if (body.role && body.role !== UserRole.CHEF_DE_COZINHA && dataToUpdate.restaurantId === undefined) {
-            // If not chef, we allow restaurantId to be whatever, or maybe strict clear? 
-            // "Opcional/Null para os demais cargos". Let's explicitly allow clearing it if passed as null, ensuring schema handles "undefined" aka no change vs "null" clear.
-            // Zod .optional().nullable() allows null. 
         }
 
         const updatedUser = await prisma.user.update({
             where: { id },
             data: dataToUpdate,
         });
+
+        // Update Access if restaurant changed
+        if (updatedUser.costCenterId && currentUser.organizationId) {
+            // Check if access exists
+            const existingAccess = await prisma.userCostCenterAccess.findUnique({
+                where: { userId_costCenterId: { userId: updatedUser.id, costCenterId: updatedUser.costCenterId } }
+            });
+            if (!existingAccess) {
+                await prisma.userCostCenterAccess.create({
+                    data: {
+                        userId: updatedUser.id,
+                        costCenterId: updatedUser.costCenterId,
+                        organizationId: currentUser.organizationId
+                    }
+                });
+            }
+        }
 
         const response: ApiResponse = {
             success: true,

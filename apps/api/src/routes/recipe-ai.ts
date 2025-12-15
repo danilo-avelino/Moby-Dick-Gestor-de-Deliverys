@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import { recipeAIService } from '../services/recipe-ai.service';
 import type { ApiResponse } from 'types';
@@ -28,7 +28,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
     // Check if AI is available
     fastify.get('/status', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Recipe AI'],
             summary: 'Check AI service status',
@@ -48,7 +48,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
     // Generate recipe from text/images/audio
     fastify.post('/generate', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Recipe AI'],
             summary: 'Generate recipe using AI',
@@ -63,7 +63,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
         try {
             const result = await recipeAIService.generateRecipe(
-                request.user!.restaurantId!,
+                request.user!.costCenterId!,
                 {
                     text: body.text,
                     imageBase64: body.images,
@@ -86,7 +86,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
     // Generate recipe from multipart form (with file uploads)
     fastify.post('/generate-with-files', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Recipe AI'],
             summary: 'Generate recipe from uploaded files',
@@ -136,7 +136,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
         try {
             const result = await recipeAIService.generateRecipe(
-                request.user!.restaurantId!,
+                request.user!.costCenterId!,
                 {
                     text,
                     imageBase64: images,
@@ -160,7 +160,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
     // Enhance existing recipe with AI suggestions
     fastify.post('/enhance', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Recipe AI'],
             summary: 'Get AI suggestions for existing recipe',
@@ -175,7 +175,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
         try {
             const result = await recipeAIService.enhanceRecipe(
-                request.user!.restaurantId!,
+                request.user!.costCenterId!,
                 body.recipeId
             );
 
@@ -193,7 +193,7 @@ export async function recipeAIRoutes(fastify: FastifyInstance) {
 
     // Calculate suggested price based on CMV
     fastify.post('/calculate-price', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Recipe AI'],
             summary: 'Calculate suggested price based on target CMV',

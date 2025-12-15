@@ -3,35 +3,38 @@ import { useAuthStore } from '../stores/auth';
 import {
     LayoutDashboard, Package, Warehouse, TrendingUp, PieChart, BookOpen,
     Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
-    MessageSquare, ClipboardList, ClipboardCheck, Apple, Users, ShoppingBag, CreditCard, History
+    MessageSquare, ClipboardList, ClipboardCheck, Apple, Users, ShoppingBag, CreditCard, History,
+    Building, RefreshCw
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, Fragment } from 'react';
 import { cn, getInitials } from '../lib/utils';
-
+import { Menu as HeadlessMenu, Transition } from '@headlessui/react';
 import { api } from '../lib/api';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { UserRole } from 'types';
+import toast from 'react-hot-toast';
 
 const navigation = [
-    { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'PDV', href: '/pdv', icon: ShoppingBag, roles: ['DIRETOR', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Produtos', href: '/products', icon: Package, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Estoque', href: '/stock', icon: Warehouse, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'], end: true },
-    { name: 'Requisição (Chef)', href: '/stock/my-requests', icon: ClipboardList, roles: ['CHEF_DE_COZINHA'] },
-    { name: 'Requisições (Gestão)', href: '/stock/requests', icon: ClipboardCheck, badge: true, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Fichas Técnicas', href: '/recipes', icon: BookOpen, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'CMV', href: '/cmv', icon: TrendingUp, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Análise Cardápio', href: '/menu-analysis', icon: PieChart, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: ['DIRETOR', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Metas', href: '/goals', icon: Target, roles: ['DIRETOR', 'ESTOQUE', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Integrações', href: '/integrations', icon: Plug, roles: ['DIRETOR', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Lista de compras', href: '/purchases', icon: ShoppingCart, roles: ['DIRETOR', 'ESTOQUE', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'NPS', href: '/nps', icon: MessageSquare, roles: ['DIRETOR', 'CHEF_DE_COZINHA', 'LIDER_DESPACHO', 'SUPER_ADMIN', 'ADMIN', 'MANAGER'] },
-    { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: ['DIRETOR', 'SUPER_ADMIN'] },
+    { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'PDV', href: '/pdv', icon: ShoppingBag, roles: [UserRole.DIRETOR, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Produtos', href: '/products', icon: Package, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Estoque', href: '/stock', icon: Warehouse, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER], end: true },
+    { name: 'Requisição (Chef)', href: '/stock/my-requests', icon: ClipboardList, roles: [UserRole.CHEF_DE_COZINHA] },
+    { name: 'Requisições (Gestão)', href: '/stock/requests', icon: ClipboardCheck, badge: true, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Fichas Técnicas', href: '/recipes', icon: BookOpen, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'CMV', href: '/cmv', icon: TrendingUp, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Análise Cardápio', href: '/menu-analysis', icon: PieChart, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Metas', href: '/goals', icon: Target, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Integrações', href: '/integrations', icon: Plug, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Lista de compras', href: '/purchases', icon: ShoppingCart, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'NPS', href: '/nps', icon: MessageSquare, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN] },
 ];
 
 export default function Layout() {
-    const { user, logout } = useAuthStore();
+    const { user, logout, switchRestaurant } = useAuthStore();
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -44,7 +47,31 @@ export default function Layout() {
             const pending = list.filter((l: any) => l.status === 'PENDING').length;
             return { pending };
         },
-        enabled: !!user && (user.role === 'DIRETOR' || user.role === 'ESTOQUE' || user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'MANAGER'),
+        enabled: !!user && (user.role === UserRole.DIRETOR || user.role === UserRole.ESTOQUE || user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN || user.role === UserRole.MANAGER),
+    });
+
+    // Fetch restaurants for switcher
+    const { data: restaurants } = useQuery({
+        queryKey: ['my-restaurants'],
+        queryFn: () => api.get('/api/restaurants').then(r => r.data.data),
+        enabled: !!user && (user.scope === 'ORG' || (user.permissions?.allowedRestaurantIds !== undefined && user.permissions.allowedRestaurantIds.length > 1)),
+    });
+
+    // Fetch organization details
+    const { data: organization } = useQuery({
+        queryKey: ['organization', user?.organizationId],
+        queryFn: () => api.get(`/api/organizations/${user?.organizationId}`).then(r => r.data.data),
+        enabled: !!user?.organizationId,
+        staleTime: 1000 * 60 * 60, // 1 hour
+    });
+
+    const switchMutation = useMutation({
+        mutationFn: switchRestaurant,
+        onSuccess: () => {
+            toast.success('Troca de restaurante realizada!');
+            window.location.reload(); // Force reload to clear query caches completely
+        },
+        onError: () => toast.error('Erro ao trocar restaurante')
     });
 
     const alertCount = 3; // Mock
@@ -62,6 +89,23 @@ export default function Layout() {
 
     return (
         <div className="flex h-screen overflow-hidden bg-gray-950">
+            {/* Impersonation Banner */}
+            {user?.impersonatedBy && (
+                <div className="fixed top-0 left-0 right-0 h-8 bg-amber-500 text-black text-xs font-bold flex items-center justify-center z-[60] shadow-md">
+                    <Users className="w-3 h-3 mr-2" />
+                    VOCÊ ESTÁ INSPECIONANDO UMA ORGANIZAÇÃO
+                    <button
+                        onClick={() => {
+                            useAuthStore.getState().stopImpersonation();
+                            navigate('/platform/organizations');
+                        }}
+                        className="ml-2 underline hover:text-white"
+                    >
+                        Sair da inspeção
+                    </button>
+                </div>
+            )}
+
             {/* Mobile sidebar backdrop */}
             {sidebarOpen && (
                 <div
@@ -74,7 +118,8 @@ export default function Layout() {
             <aside className={cn(
                 'fixed inset-y-0 left-0 z-50 w-72 bg-gray-900/95 backdrop-blur-xl border-r border-white/5',
                 'transform transition-transform duration-300 lg:translate-x-0 lg:static',
-                sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+                sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+                user?.impersonatedBy ? 'mt-8 h-[calc(100vh-2rem)]' : 'h-full' // Adjust for banner
             )}>
                 <div className="flex flex-col h-full">
                     {/* Logo */}
@@ -124,7 +169,7 @@ export default function Layout() {
 
                     {/* User section */}
                     <div className="p-4 border-t border-white/5">
-                        {user?.role === 'DIRETOR' && (
+                        {user?.role === UserRole.DIRETOR && (
                             <NavLink
                                 to="/settings"
                                 className={({ isActive }) => cn('sidebar-link mb-2', isActive && 'active')}
@@ -145,7 +190,10 @@ export default function Layout() {
             </aside>
 
             {/* Main content */}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className={cn(
+                "flex-1 flex flex-col overflow-hidden",
+                user?.impersonatedBy ? 'mt-8 h-[calc(100vh-2rem)]' : 'h-full'
+            )}>
                 {/* Header */}
                 <header className="h-16 bg-gray-900/50 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6">
                     <button
@@ -155,7 +203,58 @@ export default function Layout() {
                         <Menu className="w-6 h-6" />
                     </button>
 
-                    <div className="flex-1" />
+                    {/* Organization & Restaurant Switcher */}
+                    <div className="flex-1 flex items-center pl-4 gap-4">
+                        {/* Organization Badge */}
+                        {organization && (
+                            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/5">
+                                <Building className="w-4 h-4 text-primary-400" />
+                                <span className="text-sm font-medium text-white">{organization.name}</span>
+                            </div>
+                        )}
+                        {restaurants && restaurants.length > 1 && (
+                            <HeadlessMenu as="div" className="relative inline-block text-left">
+                                <HeadlessMenu.Button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-gray-800 rounded-lg hover:bg-gray-700 focus:outline-none transition-colors border border-white/10">
+                                    <Building className="w-4 h-4 text-gray-400" />
+                                    <span>{user?.restaurant?.name || 'Selecione...'}</span>
+                                    <RefreshCw className="w-3 h-3 ml-2 text-gray-500" />
+                                </HeadlessMenu.Button>
+                                <Transition
+                                    as={Fragment}
+                                    enter="transition ease-out duration-100"
+                                    enterFrom="transform opacity-0 scale-95"
+                                    enterTo="transform opacity-100 scale-100"
+                                    leave="transition ease-in duration-75"
+                                    leaveFrom="transform opacity-100 scale-100"
+                                    leaveTo="transform opacity-0 scale-95"
+                                >
+                                    <HeadlessMenu.Items className="absolute left-0 mt-2 w-56 origin-top-left bg-gray-800 divide-y divide-gray-700 rounded-lg shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
+                                        <div className="px-1 py-1">
+                                            {restaurants.map((r: any) => (
+                                                <HeadlessMenu.Item key={r.id}>
+                                                    {({ active }) => (
+                                                        <button
+                                                            onClick={() => switchMutation.mutate(r.id)}
+                                                            className={cn(
+                                                                active ? 'bg-primary-600 text-white' : 'text-gray-200',
+                                                                'group flex w-full items-center rounded-md px-2 py-2 text-sm'
+                                                            )}
+                                                            disabled={r.id === user?.restaurantId}
+                                                        >
+                                                            {r.name}
+                                                            {r.id === user?.restaurantId && (
+                                                                <span className="ml-auto text-xs opacity-50">(Atual)</span>
+                                                            )}
+                                                        </button>
+                                                    )}
+                                                </HeadlessMenu.Item>
+                                            ))}
+                                        </div>
+                                    </HeadlessMenu.Items>
+                                </Transition>
+                            </HeadlessMenu>
+                        )}
+                    </div>
 
                     <div className="flex items-center gap-4">
                         {/* Alerts */}

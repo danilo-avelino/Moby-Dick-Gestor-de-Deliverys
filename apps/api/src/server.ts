@@ -11,7 +11,7 @@ import websocket from '@fastify/websocket';
 
 import { prisma } from 'database';
 import { authRoutes } from './routes/auth';
-import { restaurantRoutes } from './routes/restaurants';
+import { costCenterRoutes } from './routes/cost-centers';
 import { productRoutes } from './routes/products';
 import { categoryRoutes } from './routes/categories';
 import { supplierRoutes } from './routes/suppliers';
@@ -39,6 +39,8 @@ import { customersRoutes } from './routes/customers';
 import { tablesRoutes } from './routes/tables';
 import { purchaseListRoutes, purchaseConfigRoutes } from './routes/purchase-lists';
 import { integrationManager } from './services/integrations/integration-manager';
+import { organizationRoutes } from './routes/organizations';
+import { platformRoutes } from './routes/platform';
 import { errorHandler } from './middleware/error-handler';
 
 const PORT = parseInt(process.env.API_PORT || '3001', 10);
@@ -170,7 +172,9 @@ async function buildServer() {
 
     // Register routes safely
     await registerSafe(authRoutes, { prefix: '/api/auth' });
-    await registerSafe(restaurantRoutes, { prefix: '/api/restaurants' });
+    await registerSafe(platformRoutes, { prefix: '/api/platform' });
+    await registerSafe(organizationRoutes, { prefix: '/api/organizations' });
+    await registerSafe(costCenterRoutes, { prefix: '/api/restaurants' });
     await registerSafe(productRoutes, { prefix: '/api/products' });
     await registerSafe(categoryRoutes, { prefix: '/api/categories' });
     await registerSafe(supplierRoutes, { prefix: '/api/suppliers' });

@@ -40,7 +40,10 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         const user = await prisma.user.findUnique({
             where: { email: body.email },
-            include: { restaurant: true },
+            include: {
+                costCenter: true,
+                organization: true
+            },
         });
 
         if (!user) {
@@ -61,7 +64,9 @@ export async function authRoutes(fastify: FastifyInstance) {
             sub: user.id,
             email: user.email,
             role: user.role,
-            restaurantId: user.restaurantId,
+            costCenterId: user.costCenterId,
+            organizationId: user.organizationId,
+            scope: user.scope
         });
 
         const refreshToken = fastify.jwt.sign(
@@ -101,21 +106,23 @@ export async function authRoutes(fastify: FastifyInstance) {
                     phone: user.phone || undefined,
                     avatarUrl: user.avatarUrl || undefined,
                     role: user.role as any,
-                    restaurantId: user.restaurantId || undefined,
-                    restaurant: user.restaurant ? {
-                        id: user.restaurant.id,
-                        name: user.restaurant.name,
-                        tradeName: user.restaurant.tradeName || undefined,
+                    restaurantId: user.costCenterId || undefined, // Map CostCenter to RestaurantId for frontend compat
+                    organizationId: user.organizationId || undefined,
+                    restaurant: user.costCenter ? {
+                        id: user.costCenter.id,
+                        name: user.costCenter.name,
+                        tradeName: user.costCenter.tradeName || undefined,
                         settings: {
-                            timezone: user.restaurant.timezone,
-                            currency: user.restaurant.currency,
-                            locale: user.restaurant.locale,
-                            targetCmvPercent: user.restaurant.targetCmvPercent,
-                            alertCmvThreshold: user.restaurant.alertCmvThreshold,
-                            primaryColor: user.restaurant.primaryColor,
-                            secondaryColor: user.restaurant.secondaryColor,
+                            // Default settings mapping since CostCenter might not have all check fields yet
+                            timezone: 'America/Sao_Paulo',
+                            currency: 'BRL',
+                            locale: 'pt-BR',
+                            targetCmvPercent: 30,
+                            alertCmvThreshold: 35,
+                            primaryColor: '#000000',
+                            secondaryColor: '#ffffff',
                         },
-                        createdAt: user.restaurant.createdAt.toISOString(),
+                        createdAt: new Date().toISOString(), // Mock if needed or add to schema
                     } : undefined,
                     createdAt: user.createdAt.toISOString(),
                 },
@@ -132,7 +139,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     fastify.post<{ Body: RegisterRequest }>('/register', {
         schema: {
             tags: ['Auth'],
-            summary: 'Register new user and restaurant',
+            summary: 'Register new user and restaurant (creates Organization)',
         },
     }, async (request, reply) => {
         const body = registerSchema.parse(request.body);
@@ -146,16 +153,32 @@ export async function authRoutes(fastify: FastifyInstance) {
             throw errors.conflict('Email already registered');
         }
 
-        // Create restaurant and user in transaction
+        // Transaction: Org -> CostCenter -> User
         const result = await prisma.$transaction(async (tx) => {
-            const restaurant = await tx.restaurant.create({
+            // 1. Create Organization
+            // Generate a simple slug from restaurant name
+            const slugBase = body.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            const slug = `${slugBase}-${Math.random().toString(36).substring(2, 7)}`;
+
+            const org = await tx.organization.create({
+                data: {
+                    name: body.restaurantName, // Use restaurant name for Org initially
+                    slug: slug,
+                    status: 'ACTIVE'
+                }
+            });
+
+            // 2. Create CostCenter (formerly Restaurant) linked to Org
+            const costCenter = await tx.costCenter.create({
                 data: {
                     name: body.restaurantName,
+                    organizationId: org.id
                 },
             });
 
             const passwordHash = await bcrypt.hash(body.password, 10);
 
+            // 3. Create User linked to Org and CostCenter
             const user = await tx.user.create({
                 data: {
                     email: body.email,
@@ -163,10 +186,21 @@ export async function authRoutes(fastify: FastifyInstance) {
                     firstName: body.firstName,
                     lastName: body.lastName,
                     phone: body.phone,
-                    role: 'ADMIN',
-                    restaurantId: restaurant.id,
+                    role: 'ADMIN', // Org Admin
+                    scope: 'ORG', // Full scope
+                    costCenterId: costCenter.id, // Default context
+                    organizationId: org.id
                 },
-                include: { restaurant: true },
+                include: { costCenter: true },
+            });
+
+            // 4. Create Access Record
+            await tx.userCostCenterAccess.create({
+                data: {
+                    userId: user.id,
+                    costCenterId: costCenter.id,
+                    organizationId: org.id
+                }
             });
 
             return user;
@@ -177,7 +211,9 @@ export async function authRoutes(fastify: FastifyInstance) {
             sub: result.id,
             email: result.email,
             role: result.role,
-            restaurantId: result.restaurantId,
+            costCenterId: result.costCenterId,
+            organizationId: result.organizationId,
+            scope: result.scope
         });
 
         const refreshToken = fastify.jwt.sign(
@@ -208,7 +244,8 @@ export async function authRoutes(fastify: FastifyInstance) {
                     firstName: result.firstName,
                     lastName: result.lastName,
                     role: result.role,
-                    restaurantId: result.restaurantId,
+                    restaurantId: result.costCenterId, // Compat
+                    organizationId: result.organizationId,
                     createdAt: result.createdAt.toISOString(),
                 },
                 accessToken,
@@ -218,6 +255,65 @@ export async function authRoutes(fastify: FastifyInstance) {
         };
 
         return reply.status(201).send(response);
+    });
+
+    // Switch Cost Center Context
+    fastify.post<{ Body: { costCenterId: string } }>('/switch-cost-center', {
+        preHandler: [authenticate],
+        schema: {
+            tags: ['Auth'],
+            summary: 'Switch active cost center context',
+        },
+    }, async (request, reply) => {
+        const { costCenterId } = request.body;
+        const user = request.user!; // Populated by authenticate
+
+        // Validate Access
+        if (user.scope === 'ORG' || ['SUPER_ADMIN', 'DIRETOR', 'ADMIN'].includes(user.role)) {
+            // Admin/Director check if costCenter belongs to Org
+            if (user.organizationId) {
+                const costCenter = await prisma.costCenter.findFirst({
+                    where: { id: costCenterId, organizationId: user.organizationId }
+                });
+                if (!costCenter) throw errors.forbidden('Cost Center não pertence à sua organização');
+            }
+        } else {
+            // Regular user, check permission list
+            const allowed = user.permissions?.allowedCostCenterIds;
+            if (allowed !== 'ALL' && !allowed?.includes(costCenterId)) {
+                throw errors.forbidden('Acesso negado a este Cost Center');
+            }
+        }
+
+        // Update User's default costCenterId
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { costCenterId }
+        });
+
+        // Issue new Token
+        const accessToken = fastify.jwt.sign({
+            sub: user.id,
+            email: user.email,
+            role: user.role,
+            costCenterId: costCenterId, // New Context
+            organizationId: user.organizationId,
+            scope: user.scope,
+            impersonatedBy: user.impersonatedBy
+        });
+
+        // Return new token and user
+        return reply.send({
+            success: true,
+            data: {
+                accessToken,
+                user: {
+                    ...user,
+                    costCenterId,
+                    restaurantId: costCenterId // Compat
+                }
+            }
+        });
     });
 
     // Refresh token
@@ -264,7 +360,8 @@ export async function authRoutes(fastify: FastifyInstance) {
             sub: session.user.id,
             email: session.user.email,
             role: session.user.role,
-            restaurantId: session.user.restaurantId,
+            costCenterId: session.user.costCenterId,
+            organizationId: session.user.organizationId,
         });
 
         const newRefreshToken = fastify.jwt.sign(
@@ -333,7 +430,10 @@ export async function authRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const user = await prisma.user.findUnique({
             where: { id: request.user!.id },
-            include: { restaurant: true },
+            include: {
+                costCenter: true,
+                organization: true
+            },
         });
 
         if (!user) {
@@ -350,20 +450,21 @@ export async function authRoutes(fastify: FastifyInstance) {
                 phone: user.phone,
                 avatarUrl: user.avatarUrl,
                 role: user.role,
-                restaurantId: user.restaurantId,
-                restaurant: user.restaurant ? {
-                    id: user.restaurant.id,
-                    name: user.restaurant.name,
-                    tradeName: user.restaurant.tradeName,
-                    logoUrl: user.restaurant.logoUrl,
+                restaurantId: user.costCenterId, // Compat
+                organizationId: user.organizationId,
+                restaurant: user.costCenter ? {
+                    id: user.costCenter.id,
+                    name: user.costCenter.name,
+                    tradeName: user.costCenter.tradeName,
+                    logoUrl: user.costCenter.logoUrl,
                     settings: {
-                        timezone: user.restaurant.timezone,
-                        currency: user.restaurant.currency,
-                        locale: user.restaurant.locale,
-                        targetCmvPercent: user.restaurant.targetCmvPercent,
-                        alertCmvThreshold: user.restaurant.alertCmvThreshold,
-                        primaryColor: user.restaurant.primaryColor,
-                        secondaryColor: user.restaurant.secondaryColor,
+                        timezone: 'America/Sao_Paulo',
+                        currency: 'BRL',
+                        locale: 'pt-BR',
+                        targetCmvPercent: 30,
+                        alertCmvThreshold: 35,
+                        primaryColor: '#000000',
+                        secondaryColor: '#ffffff',
                     },
                 } : null,
                 createdAt: user.createdAt.toISOString(),

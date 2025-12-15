@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant, requireRole } from '../middleware/auth';
+import { requireCostCenter, requireRole } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import { UserRole, type ApiResponse } from 'types';
 import { integrationManager } from '../services/integrations/integration-manager';
@@ -39,7 +39,7 @@ const updateCredentialsSchema = z.object({
 export async function integrationRoutes(fastify: FastifyInstance) {
     // List integrations (optionally filter by subRestaurantId)
     fastify.get<{ Querystring: { subRestaurantId?: string } }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'List integrations',
@@ -50,7 +50,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
         const integrations = await prisma.integration.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
                 ...(subRestaurantId && { metadata: { path: ['subRestaurantId'], equals: subRestaurantId } }),
             },
             select: {
@@ -86,7 +86,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Get available platforms
     fastify.get('/platforms', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Get available platforms',
@@ -103,7 +103,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
         // Check which are already connected
         const connected = await prisma.integration.findMany({
-            where: { restaurantId: request.user!.restaurantId },
+            where: { costCenterId: request.user!.costCenterId! },
             select: { platform: true, metadata: true },
         });
 
@@ -126,7 +126,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Get integration details
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Get integration details',
@@ -136,7 +136,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
             include: {
                 syncLogs: {
@@ -191,7 +191,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         // Check if platform already connected for this sub-restaurant
         const existing = await prisma.integration.findFirst({
             where: {
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
                 platform: body.platform,
                 ...(body.subRestaurantId && {
                     metadata: { path: ['subRestaurantId'], equals: body.subRestaurantId }
@@ -205,7 +205,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
         const integration = await prisma.integration.create({
             data: {
-                restaurantId: request.user!.restaurantId!,
+                costCenterId: request.user!.costCenterId!,
                 platform: body.platform,
                 name: body.name,
                 status: body.credentials ? 'PENDING_AUTH' : 'INACTIVE',
@@ -244,7 +244,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const existing = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -285,7 +285,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -349,7 +349,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -400,7 +400,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -477,7 +477,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Get sync logs
     fastify.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/:id/logs', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Get sync logs',
@@ -487,7 +487,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -527,7 +527,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -554,7 +554,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Fetch orders from integration
     fastify.get<{ Params: { id: string } }>('/:id/orders', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Fetch orders from integration',
@@ -564,7 +564,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -590,7 +590,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Get delivery quote
     fastify.post<{ Params: { id: string } }>('/:id/delivery/quote', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Get delivery quote',
@@ -600,7 +600,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -624,7 +624,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Request delivery
     fastify.post<{ Params: { id: string } }>('/:id/delivery/request', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Request delivery',
@@ -634,7 +634,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 
@@ -658,7 +658,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Get delivery tracking
     fastify.get<{ Params: { id: string; deliveryId: string } }>('/:id/delivery/:deliveryId/tracking', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Integrations'],
             summary: 'Get delivery tracking',
@@ -668,7 +668,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         const integration = await prisma.integration.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId,
+                costCenterId: request.user!.costCenterId!,
             },
         });
 

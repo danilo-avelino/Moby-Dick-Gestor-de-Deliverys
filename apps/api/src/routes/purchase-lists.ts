@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { PurchaseListService } from '../services/purchase-list.service';
 import { errors } from '../middleware/error-handler';
 import { PurchaseListTriggerType, PurchaseListStatus } from 'database';
@@ -23,7 +23,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Get all purchase lists
     fastify.get('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Get all purchase lists',
@@ -32,7 +32,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const { status, triggerType, startDate, endDate, page, limit } = request.query as any;
 
-        const result = await PurchaseListService.getPurchaseLists(request.user!.restaurantId, {
+        const result = await PurchaseListService.getPurchaseLists(request.user!.costCenterId, {
             status: status as PurchaseListStatus | undefined,
             triggerType: triggerType as PurchaseListTriggerType | undefined,
             startDate: startDate ? new Date(startDate) : undefined,
@@ -46,7 +46,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Get single purchase list
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Get purchase list details',
@@ -55,7 +55,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const list = await PurchaseListService.getPurchaseListById(
             request.params.id,
-            request.user!.restaurantId
+            request.user!.costCenterId
         );
 
         if (!list) {
@@ -67,7 +67,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Generate new purchase list (manual)
     fastify.post('/generate', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Generate new purchase list',
@@ -77,7 +77,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
         const body = generateListSchema.parse(request.body);
 
         const list = await PurchaseListService.generatePurchaseList(
-            request.user!.restaurantId,
+            request.user!.costCenterId,
             request.user!.id,
             'MANUAL' as PurchaseListTriggerType,
             body.description,
@@ -97,7 +97,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Update purchase list status
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Update purchase list status',
@@ -116,7 +116,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Delete/cancel purchase list
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Cancel purchase list',
@@ -129,7 +129,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Confirm item arrival
     fastify.post<{ Params: { id: string; itemId: string } }>('/:id/items/:itemId/confirm', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Confirm item arrival and update stock',
@@ -153,7 +153,7 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
 
     // Cancel item
     fastify.delete<{ Params: { id: string; itemId: string } }>('/:id/items/:itemId', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Lists'],
             summary: 'Cancel purchase list item',
@@ -170,20 +170,20 @@ export async function purchaseConfigRoutes(fastify: FastifyInstance) {
 
     // Get config
     fastify.get('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Config'],
             summary: 'Get purchase configuration',
             security: [{ bearerAuth: [] }]
         }
     }, async (request, reply) => {
-        const config = await PurchaseListService.getConfig(request.user!.restaurantId);
+        const config = await PurchaseListService.getConfig(request.user!.costCenterId);
         return reply.send({ success: true, data: config });
     });
 
     // Update config
     fastify.put('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['Purchase Config'],
             summary: 'Update purchase configuration',
@@ -193,7 +193,7 @@ export async function purchaseConfigRoutes(fastify: FastifyInstance) {
         const body = request.body as any;
 
         const config = await PurchaseListService.updateConfig(
-            request.user!.restaurantId,
+            request.user!.costCenterId,
             {
                 triggerPostInventory: body.triggerPostInventory,
                 triggerCriticalStock: body.triggerCriticalStock,

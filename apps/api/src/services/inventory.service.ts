@@ -37,11 +37,11 @@ export class InventoryService {
     }
 
     // Start a new inventory session
-    static async startInventory(restaurantId: string, userId: string, notes?: string) {
+    static async startInventory(costCenterId: string, organizationId: string, userId: string, notes?: string) {
         // Check if there is already an open session
         const active = await prisma.inventorySession.findFirst({
             where: {
-                restaurantId,
+                costCenterId,
                 status: 'OPEN'
             }
         });
@@ -53,7 +53,7 @@ export class InventoryService {
         // Create session
         const session = await prisma.inventorySession.create({
             data: {
-                restaurantId,
+                costCenterId,
                 status: 'OPEN',
                 createdBy: userId,
                 notes
@@ -63,7 +63,7 @@ export class InventoryService {
         // Snapshot all active products
         const products = await prisma.product.findMany({
             where: {
-                restaurantId,
+                organizationId,
                 isActive: true
             },
             include: {
@@ -95,10 +95,10 @@ export class InventoryService {
     }
 
     // Get active inventory
-    static async getActiveInventory(restaurantId: string) {
+    static async getActiveInventory(costCenterId: string) {
         return prisma.inventorySession.findFirst({
             where: {
-                restaurantId,
+                costCenterId,
                 status: 'OPEN'
             },
             include: {
@@ -229,10 +229,10 @@ export class InventoryService {
     }
 
     // Get inventory history
-    static async getHistory(restaurantId: string) {
+    static async getHistory(costCenterId: string) {
         return prisma.inventorySession.findMany({
             where: {
-                restaurantId,
+                costCenterId,
                 status: 'COMPLETED'
             },
             orderBy: {

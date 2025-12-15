@@ -1,19 +1,19 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
 export async function purchaseRoutes(fastify: FastifyInstance) {
     // Get purchase suggestions
     fastify.get('/suggestions', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: { tags: ['Purchases'], summary: 'Get AI purchase suggestions', security: [{ bearerAuth: [] }] },
     }, async (request, reply) => {
         const suggestions = await prisma.purchaseSuggestion.findMany({
             where: {
-                restaurantId: request.user!.restaurantId,
+                restaurantId: request.user!.costCenterId,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
                 isAccepted: null,
             },
@@ -34,11 +34,11 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
 
     // Generate suggestions
     fastify.post('/suggestions/generate', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: { tags: ['Purchases'], summary: 'Generate AI purchase suggestions', security: [{ bearerAuth: [] }] },
     }, async (request, reply) => {
         const products = await prisma.product.findMany({
-            where: { restaurantId: request.user!.restaurantId, isActive: true, isRawMaterial: true },
+            where: { restaurantId: request.user!.costCenterId, isActive: true, isRawMaterial: true },
             include: {
                 movements: {
                     where: { type: { in: ['OUT', 'PRODUCTION'] }, createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
@@ -47,7 +47,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
             },
         });
 
-        await prisma.purchaseSuggestion.deleteMany({ where: { restaurantId: request.user!.restaurantId } });
+        await prisma.purchaseSuggestion.deleteMany({ where: { restaurantId: request.user!.costCenterId } });
         const suggestions: any[] = [];
 
         for (const product of products) {
@@ -68,7 +68,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
             else if (daysLeft <= 5) priority = 'MEDIUM';
 
             suggestions.push({
-                restaurantId: request.user!.restaurantId, productId: product.id, currentStock: product.currentStock,
+                restaurantId: request.user!.costCenterId, productId: product.id, currentStock: product.currentStock,
                 avgDailyConsumption: avgDaily, suggestedQuantity: suggestedQty, suggestedUnit: product.baseUnit,
                 reorderPoint, leadTimeDays: product.leadTimeDays, priority, confidence: 0.8,
                 estimatedRunoutDate: new Date(Date.now() + daysLeft * 24 * 60 * 60 * 1000),
@@ -82,10 +82,10 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
 
     // Accept/reject suggestion
     fastify.patch<{ Params: { id: string }; Body: { accepted: boolean; quantity?: number } }>('/suggestions/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
     }, async (request, reply) => {
         const suggestion = await prisma.purchaseSuggestion.findFirst({
-            where: { id: request.params.id, restaurantId: request.user!.restaurantId },
+            where: { id: request.params.id, restaurantId: request.user!.costCenterId },
         });
         if (!suggestion) throw errors.notFound('Suggestion not found');
 
@@ -97,9 +97,9 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
     });
 
     // Get anomalies
-    fastify.get('/anomalies', { preHandler: [requireRestaurant] }, async (request, reply) => {
+    fastify.get('/anomalies', { preHandler: [requireCostCenter] }, async (request, reply) => {
         const anomalies = await prisma.consumptionAnomaly.findMany({
-            where: { restaurantId: request.user!.restaurantId, isResolved: false },
+            where: { restaurantId: request.user!.costCenterId, isResolved: false },
             include: { product: { select: { id: true, name: true, sku: true } } },
             orderBy: [{ severity: 'desc' }, { detectedAt: 'desc' }],
         });

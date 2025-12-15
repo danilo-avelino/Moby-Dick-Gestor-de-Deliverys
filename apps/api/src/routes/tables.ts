@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
-import { requireRestaurant } from '../middleware/auth';
+import { requireCostCenter } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import type { ApiResponse } from 'types';
 
@@ -25,7 +25,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
             includeInactive?: string;
         };
     }>('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Mesas'],
             summary: 'List tables',
@@ -33,8 +33,8 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = {};
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         if (request.query.status) {
@@ -80,7 +80,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
     // Get table by ID
     fastify.get<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Mesas'],
             summary: 'Get table details',
@@ -88,8 +88,8 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const table = await prisma.restaurantTable.findFirst({
@@ -124,7 +124,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
     // Create table
     fastify.post('/', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Mesas'],
             summary: 'Create table',
@@ -132,7 +132,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const body = createTableSchema.parse(request.body);
-        const restaurantId = request.user!.restaurantId!;
+        const restaurantId = request.user!.costCenterId!;
 
         // Check if identifier already exists
         const existing = await prisma.restaurantTable.findFirst({
@@ -168,7 +168,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
     // Update table
     fastify.patch<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Mesas'],
             summary: 'Update table',
@@ -178,8 +178,8 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         const body = updateTableSchema.parse(request.body);
 
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const existing = await prisma.restaurantTable.findFirst({ where });
@@ -221,7 +221,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
     // Delete table
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Mesas'],
             summary: 'Delete table (soft delete)',
@@ -229,8 +229,8 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
-        if (request.user?.restaurantId) {
-            where.restaurantId = request.user.restaurantId;
+        if (request.user?.costCenterId) {
+            where.restaurantId = request.user.costCenterId;
         }
 
         const existing = await prisma.restaurantTable.findFirst({ where });
@@ -258,7 +258,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
     // Bulk create tables
     fastify.post('/bulk', {
-        preHandler: [requireRestaurant],
+        preHandler: [requireCostCenter],
         schema: {
             tags: ['PDV - Mesas'],
             summary: 'Bulk create tables',
@@ -273,7 +273,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         });
 
         const body = schema.parse(request.body);
-        const restaurantId = request.user!.restaurantId!;
+        const restaurantId = request.user!.costCenterId!;
 
         const tables = [];
         for (let i = 0; i < body.count; i++) {
