@@ -51,7 +51,7 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
 
     // State
     const [selectedCostCenterId, setSelectedCostCenterId] = useState('');
-    const [selectedRequesterId, setSelectedRequesterId] = useState('');
+    const [selectedRequesterId, setSelectedRequesterId] = useState<string | null>('');
     const [requesterQuery, setRequesterQuery] = useState('');
 
     const [items, setItems] = useState<RequisitionItem[]>([]);
