@@ -144,6 +144,7 @@ export interface UserDTO {
     restaurant?: RestaurantDTO;
     permissions?: { allowedRestaurantIds: string[] };
     impersonatedBy?: string;
+    costCenter?: any;
     createdAt: string;
 }
 

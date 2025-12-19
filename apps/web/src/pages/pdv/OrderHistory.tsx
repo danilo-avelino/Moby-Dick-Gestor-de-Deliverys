@@ -23,9 +23,9 @@ interface PdvOrder {
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
     NOVO: { label: 'Novo', color: 'text-blue-400', bg: 'bg-blue-500/20' },
-    EM_PREPARO: { label: 'Em Preparo', color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
-    PRONTO: { label: 'Pronto', color: 'text-green-400', bg: 'bg-green-500/20' },
-    EM_ENTREGA: { label: 'Em Entrega', color: 'text-purple-400', bg: 'bg-purple-500/20' },
+    EM_PREPARO: { label: 'Em Preparo', color: 'text-red-400', bg: 'bg-red-500/20' },
+    PRONTO: { label: 'Pronto', color: 'text-purple-400', bg: 'bg-purple-500/20' },
+    EM_ENTREGA: { label: 'Em Entrega', color: 'text-blue-400', bg: 'bg-blue-500/20' },
     CONCLUIDO: { label: 'Concluído', color: 'text-gray-400', bg: 'bg-gray-500/20' },
     CANCELADO: { label: 'Cancelado', color: 'text-red-400', bg: 'bg-red-500/20' },
 };

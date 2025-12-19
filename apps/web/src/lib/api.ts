@@ -1,6 +1,12 @@
 import axios from 'axios';
 
 const getBaseUrl = () => {
+    // In development mode, we want to use the Vite proxy to handle CORS and path rewriting.
+    // The proxy is configured to forward /api requests to the backend.
+    if (import.meta.env.DEV) {
+        return '';
+    }
+
     const configuredUrl = import.meta.env.VITE_API_URL || '';
 
     // If configured URL is localhost but we are on a different host (LAN),

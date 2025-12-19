@@ -3,6 +3,8 @@ import { useAuthStore } from './stores/auth';
 import Layout from './components/Layout';
 import Login from './pages/auth/Login';
 import Register from './pages/auth/Register';
+import { Schedules } from './pages/schedules/Schedules';
+import PrintSchedule from './pages/schedules/PrintSchedule';
 import Dashboard from './pages/dashboard/Dashboard';
 import Products from './pages/products/Products';
 import ProductForm from './pages/products/ProductForm';
@@ -16,9 +18,11 @@ import Recipes from './pages/recipes/Recipes';
 import RecipeForm from './pages/recipes/RecipeForm';
 import CMV from './pages/cmv/CMV';
 import MenuAnalysis from './pages/menu-analysis/MenuAnalysis';
+import Menu from './pages/menu/Menu';
 import Alerts from './pages/alerts/Alerts';
 import Goals from './pages/goals/Goals';
 import Integrations from './pages/integrations/Integrations';
+import IntegrationInspector from './pages/integrations/IntegrationInspector';
 import Purchases from './pages/purchases/Purchases';
 import PurchaseLists from './pages/purchases/PurchaseLists';
 import PurchaseListDetail from './pages/purchases/PurchaseListDetail';
@@ -109,6 +113,7 @@ export default function App() {
                     <Route path="recipes/:id" element={<RecipeForm />} />
                     <Route path="cmv" element={<CMV />} />
                     <Route path="menu-analysis" element={<MenuAnalysis />} />
+                    <Route path="menu" element={<Menu />} />
                     <Route path="alerts" element={<Alerts />} />
                     <Route path="goals" element={<Goals />} />
                     <Route path="integrations" element={<Integrations />} />
@@ -125,7 +130,13 @@ export default function App() {
                     <Route path="pdv/new" element={<NewOrder />} />
                     <Route path="pdv/cash" element={<CashRegister />} />
                     <Route path="pdv/history" element={<OrderHistory />} />
+
+                    {/* Schedules Route */}
+                    <Route path="schedules" element={<Schedules />} />
                 </Route>
+
+                {/* Standalone Protected Routes (No Layout) */}
+                <Route path="/schedules/print/:id" element={<ProtectedRoute><PrintSchedule /></ProtectedRoute>} />
 
                 {/* 404 */}
                 <Route path="*" element={<Navigate to="/" replace />} />

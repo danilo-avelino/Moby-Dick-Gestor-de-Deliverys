@@ -47,7 +47,7 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
 
         if (!user) {
-            throw errors.unauthorized('Invalid credentials');
+            throw errors.unauthorized('Invalid email or password');
         }
 
         if (!user.isActive) {
@@ -55,8 +55,9 @@ export async function authRoutes(fastify: FastifyInstance) {
         }
 
         const validPassword = await bcrypt.compare(body.password, user.passwordHash);
+
         if (!validPassword) {
-            throw errors.unauthorized('Invalid credentials');
+            throw errors.unauthorized('Invalid email or password');
         }
 
         // Generate tokens
@@ -71,17 +72,16 @@ export async function authRoutes(fastify: FastifyInstance) {
 
         const refreshToken = fastify.jwt.sign(
             { sub: user.id, type: 'refresh' },
-            { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' }
+            { expiresIn: '30d' }
         );
 
-        // Save session
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 30);
 
         await prisma.session.create({
             data: {
                 userId: user.id,
-                token: accessToken.slice(-50), // Store last 50 chars for lookup
+                token: accessToken.slice(-50),
                 refreshToken,
                 expiresAt,
                 ipAddress: request.ip,
@@ -89,13 +89,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             },
         });
 
-        // Update last login
-        await prisma.user.update({
-            where: { id: user.id },
-            data: { lastLoginAt: new Date() },
-        });
-
-        const response: ApiResponse<LoginResponse> = {
+        const response: ApiResponse = {
             success: true,
             data: {
                 user: {
@@ -103,17 +97,15 @@ export async function authRoutes(fastify: FastifyInstance) {
                     email: user.email,
                     firstName: user.firstName,
                     lastName: user.lastName,
-                    phone: user.phone || undefined,
-                    avatarUrl: user.avatarUrl || undefined,
-                    role: user.role as any,
-                    restaurantId: user.costCenterId || undefined, // Map CostCenter to RestaurantId for frontend compat
-                    organizationId: user.organizationId || undefined,
+                    role: user.role,
+                    restaurantId: user.costCenterId, // Compat
+                    organizationId: user.organizationId,
                     restaurant: user.costCenter ? {
                         id: user.costCenter.id,
                         name: user.costCenter.name,
-                        tradeName: user.costCenter.tradeName || undefined,
+                        tradeName: user.costCenter.tradeName,
+                        logoUrl: user.costCenter.logoUrl,
                         settings: {
-                            // Default settings mapping since CostCenter might not have all check fields yet
                             timezone: 'America/Sao_Paulo',
                             currency: 'BRL',
                             locale: 'pt-BR',
@@ -122,8 +114,7 @@ export async function authRoutes(fastify: FastifyInstance) {
                             primaryColor: '#000000',
                             secondaryColor: '#ffffff',
                         },
-                        createdAt: new Date().toISOString(), // Mock if needed or add to schema
-                    } : undefined,
+                    } : null,
                     createdAt: user.createdAt.toISOString(),
                 },
                 accessToken,
@@ -258,14 +249,14 @@ export async function authRoutes(fastify: FastifyInstance) {
     });
 
     // Switch Cost Center Context
-    fastify.post<{ Body: { costCenterId: string } }>('/switch-cost-center', {
+    fastify.post<{ Body: { restaurantId: string } }>('/switch-restaurant', {
         preHandler: [authenticate],
         schema: {
             tags: ['Auth'],
             summary: 'Switch active cost center context',
         },
     }, async (request, reply) => {
-        const { costCenterId } = request.body;
+        const { restaurantId } = request.body;
         const user = request.user!; // Populated by authenticate
 
         // Validate Access
@@ -273,22 +264,23 @@ export async function authRoutes(fastify: FastifyInstance) {
             // Admin/Director check if costCenter belongs to Org
             if (user.organizationId) {
                 const costCenter = await prisma.costCenter.findFirst({
-                    where: { id: costCenterId, organizationId: user.organizationId }
+                    where: { id: restaurantId, organizationId: user.organizationId }
                 });
                 if (!costCenter) throw errors.forbidden('Cost Center não pertence à sua organização');
             }
         } else {
             // Regular user, check permission list
             const allowed = user.permissions?.allowedCostCenterIds;
-            if (allowed !== 'ALL' && !allowed?.includes(costCenterId)) {
+            if (allowed !== 'ALL' && !allowed?.includes(restaurantId)) {
                 throw errors.forbidden('Acesso negado a este Cost Center');
             }
         }
 
         // Update User's default costCenterId
-        await prisma.user.update({
+        const updatedUser = await prisma.user.update({
             where: { id: user.id },
-            data: { costCenterId }
+            data: { costCenterId: restaurantId },
+            include: { costCenter: true, organization: true }
         });
 
         // Issue new Token
@@ -296,7 +288,7 @@ export async function authRoutes(fastify: FastifyInstance) {
             sub: user.id,
             email: user.email,
             role: user.role,
-            costCenterId: costCenterId, // New Context
+            costCenterId: restaurantId, // New Context
             organizationId: user.organizationId,
             scope: user.scope,
             impersonatedBy: user.impersonatedBy
@@ -308,9 +300,30 @@ export async function authRoutes(fastify: FastifyInstance) {
             data: {
                 accessToken,
                 user: {
-                    ...user,
-                    costCenterId,
-                    restaurantId: costCenterId // Compat
+                    id: updatedUser.id,
+                    email: updatedUser.email,
+                    firstName: updatedUser.firstName,
+                    lastName: updatedUser.lastName,
+                    role: updatedUser.role,
+                    restaurantId: updatedUser.costCenterId, // Compat
+                    costCenterId: updatedUser.costCenterId,
+                    organizationId: updatedUser.organizationId,
+                    costCenter: updatedUser.costCenter ? {
+                        id: updatedUser.costCenter.id,
+                        name: updatedUser.costCenter.name,
+                        tradeName: updatedUser.costCenter.tradeName,
+                        logoUrl: updatedUser.costCenter.logoUrl,
+                        settings: {
+                            timezone: 'America/Sao_Paulo',
+                            currency: 'BRL',
+                            locale: 'pt-BR',
+                            targetCmvPercent: 30,
+                            alertCmvThreshold: 35,
+                            primaryColor: '#000000',
+                            secondaryColor: '#ffffff',
+                            ...(updatedUser.costCenter.settings as any || {})
+                        },
+                    } : null
                 }
             }
         });

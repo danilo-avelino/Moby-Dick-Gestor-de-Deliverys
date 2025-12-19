@@ -13,6 +13,7 @@ export function RestaurantManagement() {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingRestaurant, setEditingRestaurant] = useState<any>(null);
+    const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; password: string }>({ isOpen: false, password: '' });
 
     // Data Fetching
     const { data: restaurants, isLoading } = useQuery({
@@ -50,6 +51,18 @@ export function RestaurantManagement() {
             toast.success('Status atualizado!');
         },
         onError: (err: any) => toast.error(err.response?.data?.message || 'Erro ao alterar status'),
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: ({ id, password }: { id: string; password: string }) => api.delete(`/api/restaurants/${id}`, { data: { password } }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin-restaurants'] });
+            setIsModalOpen(false);
+            setEditingRestaurant(null);
+            setDeleteConfirmation({ isOpen: false, password: '' });
+            toast.success('Restaurante excluído com sucesso!');
+        },
+        onError: (err: any) => toast.error(err.response?.data?.message || err.response?.data?.error || 'Erro ao excluir restaurante'),
     });
 
     const handleEdit = (restaurant: any) => {
@@ -120,6 +133,7 @@ export function RestaurantManagement() {
                     <table className="table w-full">
                         <thead>
                             <tr className="border-b border-white/5">
+                                <th className="text-left p-4 text-gray-400 font-medium w-32">ID</th>
                                 <th className="text-left p-4 text-gray-400 font-medium">Restaurante</th>
                                 <th className="text-left p-4 text-gray-400 font-medium">Localização</th>
                                 <th className="text-left p-4 text-gray-400 font-medium">Status</th>
@@ -129,10 +143,10 @@ export function RestaurantManagement() {
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan={5} className="p-12 text-center text-gray-500">Carregando...</td></tr>
+                                <tr><td colSpan={6} className="p-12 text-center text-gray-500">Carregando...</td></tr>
                             ) : restaurants?.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="p-12 text-center">
+                                    <td colSpan={6} className="p-12 text-center">
                                         <div className="flex flex-col items-center gap-2">
                                             <Building className="w-8 h-8 text-gray-600" />
                                             <p className="text-gray-400">Nenhum restaurante cadastrado.</p>
@@ -145,6 +159,11 @@ export function RestaurantManagement() {
                             ) : (
                                 restaurants?.map((r: any) => (
                                     <tr key={r.id} className="hover:bg-white/5 border-b border-white/5 last:border-0 group transition-colors">
+                                        <td className="p-4">
+                                            <span className="text-xs font-mono text-gray-500" title={r.id}>
+                                                {r.id.split('-')[0]}...
+                                            </span>
+                                        </td>
                                         <td className="p-4">
                                             <div>
                                                 <p className="font-medium text-white">{r.name}</p>
@@ -209,13 +228,62 @@ export function RestaurantManagement() {
                         : createMutation.mutate(data)
                     }
                     isLoading={createMutation.isPending || updateMutation.isPending}
+                    onDelete={editingRestaurant ? () => setDeleteConfirmation({ isOpen: true, password: '' }) : undefined}
                 />
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {deleteConfirmation.isOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="glass-card w-full max-w-md animate-scale-in border border-red-500/30 shadow-2xl bg-red-950/10">
+                        <div className="p-6 space-y-4">
+                            <div className="flex flex-col items-center text-center gap-3">
+                                <div className="p-3 bg-red-500/10 rounded-full">
+                                    <Trash2 className="w-8 h-8 text-red-500" />
+                                </div>
+                                <h3 className="text-xl font-bold text-white">Excluir Restaurante?</h3>
+                                <p className="text-sm text-gray-300">
+                                    Esta ação é irreversível. Todos os dados vinculados a este restaurante (Pedidos, Integrações, Estoque) serão perdidos permanentemente.
+                                </p>
+                            </div>
+
+                            <div className="space-y-3 pt-2">
+                                <label className="label text-xs uppercase tracking-wider text-red-400">Confirme sua senha</label>
+                                <input
+                                    type="password"
+                                    autoFocus
+                                    className="input w-full border-red-500/30 focus:border-red-500/50"
+                                    placeholder="Digite sua senha..."
+                                    value={deleteConfirmation.password}
+                                    onChange={e => setDeleteConfirmation({ ...deleteConfirmation, password: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="flex justify-end gap-3 pt-2">
+                                <button
+                                    onClick={() => setDeleteConfirmation({ isOpen: false, password: '' })}
+                                    className="btn-ghost"
+                                    disabled={deleteMutation.isPending}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={() => editingRestaurant && deleteMutation.mutate({ id: editingRestaurant.id, password: deleteConfirmation.password })}
+                                    className="btn bg-red-600 hover:bg-red-700 text-white"
+                                    disabled={deleteMutation.isPending || !deleteConfirmation.password}
+                                >
+                                    {deleteMutation.isPending ? 'Excluindo...' : 'Confirmar Exclusão'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );
 }
 
-function RestaurantFormModal({ restaurant, isOpen, onClose, onSubmit, isLoading }: any) {
+function RestaurantFormModal({ restaurant, isOpen, onClose, onSubmit, isLoading, onDelete }: any) {
     const [formData, setFormData] = useState({
         name: restaurant?.name || '',
         cnpj: restaurant?.cnpj || '',
@@ -328,13 +396,27 @@ function RestaurantFormModal({ restaurant, isOpen, onClose, onSubmit, isLoading 
                         </label>
                     </div>
 
-                    <div className="flex justify-end gap-3 pt-4 border-t border-white/10 mt-6">
-                        <button type="button" onClick={onClose} className="btn-ghost" disabled={isLoading}>
-                            Cancelar
-                        </button>
-                        <button type="submit" className="btn-primary min-w-[120px]" disabled={isLoading}>
-                            {isLoading ? 'Salvando...' : 'Salvar'}
-                        </button>
+                    <div className="flex justify-between items-center pt-4 border-t border-white/10 mt-6">
+                        <div>
+                            {onDelete && (
+                                <button
+                                    type="button"
+                                    onClick={onDelete}
+                                    className="btn bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-red-500/20"
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    Deletar
+                                </button>
+                            )}
+                        </div>
+                        <div className="flex gap-3">
+                            <button type="button" onClick={onClose} className="btn-ghost" disabled={isLoading}>
+                                Cancelar
+                            </button>
+                            <button type="submit" className="btn-primary min-w-[120px]" disabled={isLoading}>
+                                {isLoading ? 'Salvando...' : 'Salvar'}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

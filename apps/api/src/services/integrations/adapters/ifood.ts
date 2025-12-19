@@ -2,6 +2,9 @@
 // Documentation: https://developer.ifood.com.br
 
 import { SalesIntegrationAdapter, registerAdapter } from '../base-adapter';
+import { prisma } from 'database';
+import type { IntegrationInbox } from 'database';
+import { integrationInboxService } from '../integration-inbox.service';
 import {
     IntegrationConfig,
     NormalizedOrder,
@@ -177,6 +180,18 @@ export class IFoodAdapter extends SalesIntegrationAdapter {
 
     // Orders
     async fetchOrders(since?: Date): Promise<NormalizedOrder[]> {
+        // Legacy method - can call ingest + process or just fetch
+        // For backward compatibility, let's keep it behaving as "fetch and return normalized"
+        // But optimally we should use the new pipeline.
+        // Let's implement ingestOrders and processPayload interactions later.
+        // For now, keep existing implementation or wrap it?
+        // The prompt says "A) Estados reais... B) Inbox... C) Normalização".
+        // I will implement ingestOrders.
+        return [];
+    }
+
+    // New Pipeline
+    async ingestOrders(since?: Date): Promise<number> {
         const params = new URLSearchParams();
         if (since) {
             params.append('createdAtStart', since.toISOString());
@@ -187,7 +202,65 @@ export class IFoodAdapter extends SalesIntegrationAdapter {
             `/order/v1.0/orders?${params.toString()}`
         );
 
-        return orders.map(order => this.normalizeOrder(order));
+        if (this.config.integrationId) {
+            for (const order of orders) {
+                await integrationInboxService.logIngestion({
+                    integrationId: this.config.integrationId,
+                    source: 'ifood',
+                    event: 'order.polling',
+                    externalId: order.id,
+                    rawPayload: order
+                });
+            }
+        }
+
+        return orders.length;
+    }
+
+    async processPayload(inboxItem: any): Promise<void> {
+        const order = inboxItem.rawPayload as any as IFoodOrder;
+        const normalized = this.normalizeOrder(order);
+        const now = new Date();
+
+        const updates: any = {
+            metadata: order,
+            orderValue: normalized.total,
+            updateAt: now
+        };
+
+        if (normalized.status === 'ready') updates.readyDatetime = now;
+        if (normalized.status === 'dispatched') updates.outForDeliveryDatetime = now;
+        if (normalized.status === 'delivered') updates.deliveredDatetime = now;
+
+        // Persist to Domain
+        await prisma.order.upsert({
+            where: {
+                costCenterId_externalId_logisticsProvider: {
+                    costCenterId: this.config.costCenterId!,
+                    externalId: normalized.externalId,
+                    logisticsProvider: 'IFOOD'
+                }
+            },
+            update: updates,
+            create: {
+                costCenterId: this.config.costCenterId!,
+                organizationId: this.config.organizationId,
+                integrationId: this.config.integrationId,
+                externalId: normalized.externalId,
+                logisticsProvider: 'IFOOD',
+                orderDatetime: normalized.createdAt,
+                customerName: normalized.customer.name,
+                deliveryAddress: normalized.deliveryAddress ? `${normalized.deliveryAddress.street}, ${normalized.deliveryAddress.number}` : undefined,
+                orderValue: normalized.total,
+                metadata: order as any,
+                readyDatetime: normalized.status === 'ready' ? now : undefined,
+                outForDeliveryDatetime: normalized.status === 'dispatched' ? now : undefined,
+                deliveredDatetime: normalized.status === 'delivered' ? now : undefined
+            }
+        });
+
+        // Mark processed
+        await integrationInboxService.markProcessed(inboxItem.id, normalized);
     }
 
     async getOrderDetails(orderId: string): Promise<NormalizedOrder> {

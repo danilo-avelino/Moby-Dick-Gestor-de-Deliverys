@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -50,6 +51,7 @@ model Organization {
   impersonationLogs AdminImpersonationLog[]
   impersonationSessions AdminImpersonationSession[]
   events          Event[]
+  scheduleSectors ScheduleSector[]
 
   // RLS Back-relations
   productCategories ProductCategory[]
@@ -261,6 +263,8 @@ model CostCenter {
   // Purchase List Relations
   purchaseLists   PurchaseList[]
   purchaseConfig  PurchaseConfig?
+
+  menuCategories  MenuCategory[]
   
   @@map("cost_centers")
   @@index([cnpj])
@@ -325,14 +329,24 @@ enum IntegrationPlatform {
   BLING
   TINY
   CUSTOM_API
+  FOODY
+  SAIPOS
+  AGILIZONE
+  NEEMO
+  ANOTAAI
+  CONSUMER
+  CARDAPIO_WEB
+  FOOD99
 }
 
 enum IntegrationStatus {
-  ACTIVE
-  INACTIVE
-  ERROR
-  PENDING_AUTH
-  SYNCING
+  CONFIGURED
+  CONNECTED
+  INGESTING
+  DEGRADED
+  STOPPED
+  // ERROR - Mapped to STOPPED or DEGRADED
+  // PENDING_AUTH - Mapped to CONFIGURED
 }
 
 model Integration {
@@ -344,7 +358,7 @@ model Integration {
   
   platform        IntegrationPlatform
   name            String
-  status          IntegrationStatus   @default(PENDING_AUTH)
+  status          IntegrationStatus   @default(CONFIGURED)
   
   // Credentials (encrypted)
   credentials     Json?
@@ -375,6 +389,7 @@ model Integration {
   
   // Relations
   syncLogs        SyncLog[]
+  inboxItems      IntegrationInbox[]
   
   @@unique([costCenterId, platform, externalId])
   @@index([costCenterId])
@@ -419,6 +434,65 @@ model SyncLog {
   @@index([integrationId])
   @@index([status])
   @@index([startedAt])
+}
+
+enum InboxStatus {
+    PENDING
+    PROCESSED
+    FAILED
+    IGNORED
+}
+
+model IntegrationInbox {
+    id              String          @id @default(cuid())
+    integrationId   String
+    integration     Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+    externalId      String?         // Order ID, Delivery ID
+    correlationId   String?         // Tracing ID
+
+    source          String          // "ifood", "foody", "webhook"...
+    event           String?         // "order.created", "delivery.update"
+
+    rawPayload      Json
+    parsedPayload   Json?
+
+    status          InboxStatus     @default(PENDING)
+    errorMessage    String?
+    retriesCount    Int             @default(0)
+
+    receivedAt      DateTime        @default(now())
+    processedAt     DateTime?
+
+    @@index([integrationId])
+    @@index([status])
+    @@index([externalId])
+    @@index([correlationId])
+}
+
+model WorkTimeOrder {
+    id              String          @id @default(cuid())
+    restaurantId    String
+    provider        String          // "FOODY"
+    providerOrderId String
+
+    orderDate       DateTime
+    arrivedAt       DateTime
+    readyAt         DateTime?
+    pickedUpAt      DateTime?
+    deliveredAt     DateTime?
+
+    shift           String          // "DAY", "NIGHT"
+    workday         DateTime        @db.Date
+
+    rawPayload      Json?
+
+    createdAt       DateTime        @default(now())
+    updatedAt       DateTime        @updatedAt
+
+    @@unique([restaurantId, provider, providerOrderId])
+    @@index([restaurantId, workday, shift])
+    @@index([provider, orderDate])
 }
 
 // ==========================================
@@ -726,6 +800,8 @@ model Recipe {
   // Yield
   yieldQuantity   Float             @default(1)
   yieldUnit       String            @default("un")
+  
+  menuItems       MenuItem[]
   
   // Cost
   currentCost     Float             @default(0)
@@ -2136,3 +2212,282 @@ model WebhookLog {
   
   @@index([organizationId])
 }
+
+// ==========================================
+// SCHEDULES (Escalas) - Phase 2-3
+// ==========================================
+
+model ScheduleSector {
+  id              String      @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  isActive        Boolean     @default(true)
+  numberOfShifts  Int         @default(1)
+
+  // JSON Configuration
+  minStaffByWeekday Json?    // { "0": 2, "1": 3 ... }
+  maxStaffByWeekday Json?
+
+  employees       ScheduleEmployee[]
+  sectorOutputs   ScheduleSectorOutput[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([organizationId])
+}
+
+model ScheduleEmployee {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  sectorId        String
+  sector          ScheduleSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  name            String
+  
+  // Contracts / Preferences
+  scheduleType            String?       // "12x36" | "6x1" (Using String for flexibility or could be Enum)
+  shift                   String?       // e.g., "Day", "Night", "1", "2"
+  extraDaysOffPerMonth    Int?          // For 6x1
+  
+  workDaysPerWeek         Int
+  extraDaysOffDefault     Int
+  extraDaysOffOverride    Int?
+  
+  weeklyOffPreferenceMain Json? // [0, 6]
+  weeklyOffPreferenceExtra Json? 
+  unavailableWeekdays     Json?
+  
+  fixedOffDates           Json? // ISO Dates
+  fixedWorkDates          Json?
+  
+  maxConsecutiveWorkDays  Int?
+  priorityScore           Int   @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([organizationId])
+  @@index([sectorId])
+}
+
+model ScheduleMonthConfig {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  year            Int
+  month           Int
+  
+  teamExtraDaysOff        Int   @default(1)
+  maxExtraOffPerDayOrg    Int?
+  maxExtraOffPerDayPerSector Int?
+  
+  blockedDates            Json?
+  preferredExtraOffDates  Json?
+
+  createdById     String
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([organizationId, year, month])
+}
+
+model Schedule {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  year            Int
+  month           Int
+  
+  status          String      // DRAFT, FINAL
+  createdById     String
+  
+  sectorOutputs   ScheduleSectorOutput[]
+  changes         ScheduleChange[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([organizationId, year, month])
+}
+
+model ScheduleSectorOutput {
+  id              String      @id @default(cuid())
+  
+  scheduleId      String
+  schedule        Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  sectorId        String
+  sector          ScheduleSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  
+  data            Json        // The Matrix { userId: { 1: 'T', 2: 'F' } }
+  coverageByDay   Json
+  warnings        Json
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([scheduleId, sectorId])
+}
+
+model ScheduleChange {
+  id              String      @id @default(cuid())
+  scheduleId      String
+  schedule        Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  userId          String      // Actor
+  targetUserId    String      // Employee changed
+  day             Int
+  oldValue        String
+  newValue        String
+  reason          String?
+  
+  createdAt       DateTime    @default(now())
+  
+  @@index([scheduleId])
+}
+
+// ==========================================
+// MENU / CARDÁPIO (Phase 4)
+// ==========================================
+
+model MenuCategory {
+  id              String      @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId  String?
+  // Note: Menu Categories are usually per Cost Center for PDV, but we can allow Org level later.
+  // For now, linking to CostCenter as requested ("fonte oficial de produtos exibidos no PDV").
+  
+  name            String
+  sortOrder       Int         @default(0)
+  isActive        Boolean     @default(true)
+  
+  // Channels
+  activeForSalao    Boolean   @default(true)
+  activeForRetirada Boolean   @default(true)
+  activeForDelivery Boolean   @default(true)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  items           MenuItem[]
+  
+  @@index([costCenterId])
+  @@index([sortOrder])
+}
+
+enum MenuItemType {
+  SIMPLE
+  COMBO
+}
+
+model MenuItem {
+  id              String      @id @default(cuid())
+  
+  menuCategoryId  String
+  menuCategory    MenuCategory @relation(fields: [menuCategoryId], references: [id], onDelete: Cascade)
+  
+  name            String      // Display name
+  description     String?
+  imageUrl        String?
+  
+  type            MenuItemType @default(SIMPLE)
+  price           Float       @default(0) // Sale price
+  
+  isActive        Boolean     @default(true)
+  isFeatured      Boolean     @default(false)
+  displayInPdv    Boolean     @default(true)
+  
+  // Channels
+  activeForSalao    Boolean   @default(true)
+  activeForRetirada Boolean    @default(true)
+  activeForDelivery Boolean   @default(true)
+  
+  // Technical Sheet Link
+  recipeId        String?
+  recipe          Recipe?     @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  
+  // Cost & Pricing Snapshot
+  costSnapshot    Float?      // Snapshot of cost from recipe at time of link/update
+  markupPercent   Float?
+  taxPercent      Float?
+  
+  internalNotes   String?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  optionGroups    MenuOptionGroup[]
+  comboItems      MenuItemCombo[]   @relation("ComboParent") // If type is COMBO
+  usedInCombos    MenuItemCombo[]   @relation("ComboChild")  // If used inside another combo
+  
+  @@index([menuCategoryId])
+  @@index([name])
+}
+
+model MenuItemCombo {
+  id              String      @id @default(cuid())
+  
+  menuItemId      String      // The Combo Item
+  menuItem        MenuItem    @relation("ComboParent", fields: [menuItemId], references: [id], onDelete: Cascade)
+  
+  childItemId     String      // The item included in the combo
+  childItem       MenuItem    @relation("ComboChild", fields: [childItemId], references: [id], onDelete: Cascade)
+  
+  quantity        Int         @default(1)
+  canSubstitute   Boolean     @default(false)
+  
+  @@index([menuItemId])
+}
+
+enum OptionSelectionType {
+  SINGLE
+  MULTIPLE
+}
+
+model MenuOptionGroup {
+  id              String      @id @default(cuid())
+  
+  menuItemId      String
+  menuItem        MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  
+  name            String      // e.g. "Tamanho", "Adicionais"
+  selectionType   OptionSelectionType @default(SINGLE)
+  
+  isRequired      Boolean     @default(false)
+  minOptions      Int         @default(0)
+  maxOptions      Int         @default(1)
+  
+  sortOrder       Int         @default(0)
+  
+  options         MenuOption[]
+  
+  @@index([menuItemId])
+}
+
+model MenuOption {
+  id              String      @id @default(cuid())
+  
+  optionGroupId   String
+  optionGroup     MenuOptionGroup @relation(fields: [optionGroupId], references: [id], onDelete: Cascade)
+  
+  name            String
+  price           Float       @default(0) // Additional price
+  
+  sortOrder       Int         @default(0)
+  isActive        Boolean     @default(true)
+  
+  // Simplify: no linking to product/recipe for the option itself yet, keeping it visual/price only as per prompt
+  // But strictly speaking, an option *could* consume stock. We'll leave that for Phase 4 extensions if requested.
+  
+  @@index([optionGroupId])
+}
+
+

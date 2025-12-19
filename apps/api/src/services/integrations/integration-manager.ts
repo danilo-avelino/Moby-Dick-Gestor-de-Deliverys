@@ -1,6 +1,7 @@
 // Integration Manager - Central service to manage all integrations
 
 import { prisma } from 'database';
+import { integrationInboxService } from './integration-inbox.service';
 import {
     BaseIntegrationAdapter,
     SalesIntegrationAdapter,
@@ -50,7 +51,7 @@ export class IntegrationManager {
     async loadIntegrations(): Promise<void> {
         try {
             const dbIntegrations = await prisma.integration.findMany({
-                where: { status: 'ACTIVE' },
+                where: { status: 'CONNECTED' }, // Updated status enum
             });
 
             for (const integration of dbIntegrations) {
@@ -60,6 +61,8 @@ export class IntegrationManager {
                     type: this.getIntegrationType(integration.platform),
                     credentials: integration.credentials as any,
                     syncInterval: integration.syncFrequencyMinutes,
+                    organizationId: integration.organizationId || undefined,
+                    costCenterId: integration.costCenterId,
                 });
             }
 
@@ -76,6 +79,8 @@ export class IntegrationManager {
         type: IntegrationType;
         credentials: any;
         syncInterval: number;
+        organizationId?: string;
+        costCenterId: string;
     }): Promise<boolean> {
         try {
             const adapterConfig: IntegrationConfig = {
@@ -83,6 +88,9 @@ export class IntegrationManager {
                 type: config.type,
                 credentials: config.credentials,
                 sandboxMode: process.env.NODE_ENV !== 'production',
+                integrationId: config.id,
+                organizationId: config.organizationId,
+                costCenterId: config.costCenterId,
             };
 
             const adapter = createAdapter(adapterConfig);
@@ -106,6 +114,8 @@ export class IntegrationManager {
             return true;
         } catch (error) {
             console.error(`Failed to add integration ${config.platform}:`, error);
+            // Don't fail the whole load process, just this one
+            // Maybe update status to DEGRADED?
             return false;
         }
     }
@@ -265,7 +275,67 @@ export class IntegrationManager {
     }
 
     async manualSync(integrationId: string): Promise<number> {
-        return this.syncOrders(integrationId);
+        const managed = this.integrations.get(integrationId);
+        if (!managed) {
+            throw new Error('Integration not active');
+        }
+
+        if (managed.type === 'sales') {
+            const adapter = managed.adapter as SalesIntegrationAdapter;
+
+            // Try ingestOrders first if available
+            if (adapter.ingestOrders) {
+                const count = await adapter.ingestOrders();
+                // Process pending items immediately
+                const pending = await integrationInboxService.getPendingItems(integrationId);
+                for (const item of pending) {
+                    try {
+                        await adapter.processPayload(item);
+                    } catch (err) {
+                        console.error(`Failed to process item ${item.id}`, err);
+                        await integrationInboxService.markFailed(item.id, (err as Error).message);
+                    }
+                }
+                return count;
+            } else {
+                // Fallback to legacy
+                const orders = await adapter.fetchOrders();
+                return orders.length;
+            }
+        }
+        return 0;
+    }
+
+    async reprocessInboxItem(itemId: string): Promise<boolean> {
+        const item = await prisma.integrationInbox.findUnique({
+            where: { id: itemId },
+            include: { integration: true }
+        });
+
+        if (!item || !item.integration) throw new Error('Item or Integration not found');
+
+        let adapter = this.integrations.get(item.integrationId)?.adapter;
+
+        if (!adapter) {
+            const config: IntegrationConfig = {
+                platform: item.integration.platform,
+                type: this.getIntegrationType(item.integration.platform),
+                credentials: item.integration.credentials as any,
+                sandboxMode: process.env.NODE_ENV !== 'production',
+                integrationId: item.integration.id,
+                organizationId: item.integration.organizationId || undefined,
+                costCenterId: item.integration.costCenterId,
+            };
+            adapter = createAdapter(config);
+            try {
+                await adapter.authenticate();
+            } catch (e) {
+                console.warn("Auth failed during reprocess, continuing if offline processing possible", e);
+            }
+        }
+
+        await adapter.processPayload(item);
+        return true;
     }
 
     // --- Helpers ---

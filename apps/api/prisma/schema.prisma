@@ -1,0 +1,2278 @@
+// Prisma Schema for Delivery SaaS Platform
+// Supports all 4 phases: Integrations, Stock, Recipes, CMV, Menu Analysis, AI, Gamification
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// AUTHENTICATION & MULTI-TENANCY
+// ==========================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+  DIRETOR
+  ESTOQUE
+  CHEF_DE_COZINHA
+  LIDER_DESPACHO
+}
+
+enum UserScope {
+  ORG
+  RESTAURANTS
+}
+
+model Organization {
+  id              String      @id @default(cuid())
+  name            String
+  slug            String      @unique // URL friendly identifier
+  
+  // Organization Master/Owner (can be null if system owned)
+  ownerId         String?
+  
+  status          String      @default("ACTIVE") // ACTIVE, INACTIVE, SUSPENDED
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  costCenters     CostCenter[]
+  users           User[]
+  impersonationLogs AdminImpersonationLog[]
+  impersonationSessions AdminImpersonationSession[]
+  events          Event[]
+
+  // RLS Back-relations
+  productCategories ProductCategory[]
+  recipes           Recipe[]
+  recipeCategories  RecipeCategory[]
+  products          Product[]
+  suppliers         Supplier[]
+}
+
+model UserCostCenterAccess {
+  id              String      @id @default(cuid())
+  
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  costCenterId    String
+  costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId  String
+  
+  createdAt       DateTime    @default(now())
+  
+  @@unique([userId, costCenterId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+
+model AdminImpersonationSession {
+  id              String      @id @default(cuid())
+  
+  systemMasterUserId String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  
+  @@index([systemMasterUserId])
+}
+
+model AdminImpersonationLog {
+  id              String      @id @default(cuid())
+  
+  systemMasterUserId String
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  action          String      // START, STOP, ACTION
+  
+  metadata        Json?
+  
+  timestamp       DateTime    @default(now())
+  
+  @@index([organizationId])
+  @@index([systemMasterUserId])
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  phone             String?
+  avatarUrl         String?
+  role              UserRole  @default(STAFF)
+  scope             UserScope @default(RESTAURANTS)
+  isActive          Boolean   @default(true)
+  emailVerified     Boolean   @default(false)
+  mfaEnabled        Boolean   @default(false)
+  mfaSecret         String?
+  
+  // Multi-tenancy
+  organizationId    String?    // Start optional for backfill
+  organization      Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  
+  costCenterId      String?
+  costCenter        CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  costCenterAccess  UserCostCenterAccess[]
+  
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLoginAt       DateTime?
+  
+  // Relations
+  sessions          Session[]
+  stockMovements    StockMovement[]
+  portioningBatches PortioningBatch[]
+  alerts            Alert[]
+  goals             Goal[]
+  achievements      Achievement[]
+  auditLogs         AuditLog[]
+  
+  stockRequests     StockRequest[]  @relation("CreatedRequests")
+  approvedRequests  StockRequest[]  @relation("ApprovedRequests")
+  requestComments   StockRequestComment[]
+  requestTemplates  StockRequestTemplate[]
+  
+  // PDV Relations
+  pdvOrdersCreated      PdvOrder[]           @relation("PdvOrderCreator")
+  statusChanges         PdvOrderStatusHistory[] @relation("StatusChanges")
+  cashSessionsOpened    CashSession[]        @relation("CashSessionOpener")
+  cashSessionsClosed    CashSession[]        @relation("CashSessionCloser")
+  cashMovements         CashMovement[]       @relation("CashMovements")
+  
+  // Purchase List Relations
+  purchaseListsCreated      PurchaseList[]       @relation("PurchaseListCreator")
+  purchaseListItemsConfirmed PurchaseListItem[]  @relation("PurchaseListItemConfirmer")
+
+  @@index([email])
+  @@index([costCenterId])
+  @@index([organizationId])
+}
+
+model Session {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token         String   @unique
+  refreshToken  String   @unique
+  expiresAt     DateTime
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+  
+  @@index([userId])
+  @@index([token])
+}
+
+model CostCenter {
+  id              String    @id @default(cuid())
+  // Multi-tenancy
+  organizationId  String?    // Start optional for backfill
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  tradeName       String?
+  cnpj            String?   @unique
+  email           String?
+  phone           String?
+  logoUrl         String?
+  
+  // Address
+  street          String?
+  number          String?
+  complement      String?
+  neighborhood    String?
+  city            String?
+  state           String?
+  zipCode         String?
+  country         String    @default("BR")
+  
+  // Settings
+  timezone        String    @default("America/Sao_Paulo")
+  currency        String    @default("BRL")
+  locale          String    @default("pt-BR")
+  
+  // CMV Settings
+  targetCmvPercent  Float     @default(30.0)
+  alertCmvThreshold Float     @default(35.0)
+  
+  // Subscription
+  plan            String    @default("free")
+  planExpiresAt   DateTime?
+  
+  // White-label
+  primaryColor    String    @default("#6366f1")
+  secondaryColor  String    @default("#8b5cf6")
+  customDomain    String?
+  
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  users           User[]
+  userAccess      UserCostCenterAccess[]
+  integrations    Integration[]
+  // products        Product[] // REMOVED: Products are Org Global
+  // categories      ProductCategory[] // REMOVED
+  // suppliers       Supplier[] // REMOVED
+  // recipes         Recipe[] // REMOVED
+  
+  cmvSnapshots    CMVSnapshot[]
+  alerts          Alert[]
+  alertRules      AlertRule[]
+  goals           Goal[]
+  menuAnalyses    MenuAnalysis[]
+  portioningProcesses PortioningProcess[]
+  purchaseSuggestions PurchaseSuggestion[]
+  consumptionAnomalies ConsumptionAnomaly[]
+  orders          Order[]
+  inventorySessions InventorySession[]
+  // recipeCategories RecipeCategory[] // REMOVED
+  stockRequests    StockRequest[]
+  stockRequestTemplates StockRequestTemplate[]
+  
+  // PDV Relations
+  customers       Customer[] // Customers usually Global? Or per store? Keeping as relation for now but might need check.
+  tables          RestaurantTable[]
+  pdvOrders       PdvOrder[]      @relation("PdvOrders")
+  cashSessions    CashSession[]
+  
+  // Purchase List Relations
+  purchaseLists   PurchaseList[]
+  purchaseConfig  PurchaseConfig?
+  
+  @@map("cost_centers")
+  @@index([cnpj])
+  @@index([organizationId])
+}
+
+// ==========================================
+// ORDERS & WORK TIMES
+// ==========================================
+
+model Order {
+  id                      String    @id @default(cuid())
+  costCenterId            String
+  costCenter              CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId          String?
+  
+  externalId              String    // Order ID from logistics provider
+  logisticsProvider       String    // "AGILIZONE", "FOODY", "IFOOD", etc.
+  integrationId           String?
+  
+  // Timing timestamps (nullable except orderDatetime)
+  orderDatetime           DateTime  // When order was received
+  readyDatetime           DateTime? // When marked as ready
+  outForDeliveryDatetime  DateTime? // When driver picked up
+  deliveredDatetime       DateTime? // When delivered
+  
+  // Calculated times (in minutes, nullable)
+  prepTime                Float?    // ready - order
+  pickupTime              Float?    // outForDelivery - ready
+  deliveryTime            Float?    // delivered - outForDelivery
+  totalTime               Float?    // delivered - order
+  
+  // Additional info
+  customerName            String?
+  deliveryAddress         String?
+  orderValue              Float?
+  
+  metadata                Json?     // Raw data from integration
+  
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  
+  @@unique([costCenterId, externalId, logisticsProvider])
+  @@index([costCenterId])
+  @@index([organizationId])
+  @@index([orderDatetime])
+  @@index([logisticsProvider])
+}
+
+// ==========================================
+// INTEGRATIONS (Phase 1)
+// ==========================================
+
+enum IntegrationPlatform {
+  IFOOD
+  RAPPI
+  UBER_EATS
+  LINX
+  TOTVS
+  STONE
+  BLING
+  TINY
+  CUSTOM_API
+}
+
+enum IntegrationStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+  PENDING_AUTH
+  SYNCING
+}
+
+model Integration {
+  id              String              @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId  String?
+  
+  platform        IntegrationPlatform
+  name            String
+  status          IntegrationStatus   @default(PENDING_AUTH)
+  
+  // Credentials (encrypted)
+  credentials     Json?
+  
+  // OAuth tokens
+  accessToken     String?
+  refreshToken    String?
+  tokenExpiresAt  DateTime?
+  
+  // Sync settings
+  syncFrequencyMinutes Int           @default(15)
+  lastSyncAt      DateTime?
+  nextSyncAt      DateTime?
+  
+  // Field mapping
+  fieldMapping    Json?
+  
+  // Webhook
+  webhookUrl      String?
+  webhookSecret   String?
+  
+  // Metadata
+  externalId      String?
+  metadata        Json?
+  
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  
+  // Relations
+  syncLogs        SyncLog[]
+  
+  @@unique([costCenterId, platform, externalId])
+  @@index([costCenterId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+enum SyncType {
+  FULL
+  INCREMENTAL
+  WEBHOOK
+  MANUAL
+}
+
+enum SyncStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+model SyncLog {
+  id                String        @id @default(cuid())
+  integrationId     String
+  integration       Integration   @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  
+  syncType          SyncType
+  status            SyncStatus    @default(PENDING)
+  
+  recordsProcessed  Int           @default(0)
+  recordsCreated    Int           @default(0)
+  recordsUpdated    Int           @default(0)
+  recordsFailed     Int           @default(0)
+  
+  errors            Json?
+  metadata          Json?
+  
+  startedAt         DateTime      @default(now())
+  completedAt       DateTime?
+  
+  @@index([integrationId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+// ==========================================
+// STOCK CONTROL (Phase 1)
+// ==========================================
+
+model ProductCategory {
+  id              String            @id @default(cuid())
+  // restaurantId removed - Categories are Org wide
+  
+  name            String
+  description     String?
+  parentId        String?
+  parent          ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children        ProductCategory[] @relation("CategoryHierarchy")
+  
+  sortOrder       Int               @default(0)
+  isActive        Boolean           @default(true)
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  organizationId  String?
+  organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Relations
+  products        Product[]
+  recipes         Recipe[]
+  
+  @@unique([organizationId, name, parentId]) // scoped by org now
+  @@index([organizationId])
+}
+
+enum UnitType {
+  WEIGHT    // kg, g, mg
+  VOLUME    // L, ml
+  UNIT      // un, dozen, box
+  LENGTH    // m, cm
+}
+
+model Product {
+  id                String            @id @default(cuid())
+  // restaurantId removed - Products are Org wide
+  
+  organizationId    String?
+  organization      Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  sku               String?
+  barcode           String?
+  name              String
+  description       String?
+  
+  categoryId        String?
+  category          ProductCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  
+  // Units
+  baseUnit          String            @default("un") // kg, g, L, ml, un
+  unitType          UnitType          @default(UNIT)
+  conversions       Json?             // { "g": 1000, "un": 0.1 } -> 1kg = 1000g = 10un
+  
+  // Stock - Note: Global Stock per Org? Or aggregate? 
+  // User Prompt: "Produtos e estoque são únicos por organização." -> Global Stock.
+  // So currentStock here is correct for the Org.
+  currentStock      Float             @default(0)
+  reorderPoint      Float?
+  manualReorderPoint Float?
+  
+  // Cost
+  avgCost           Float             @default(0)
+  lastPurchasePrice Float             @default(0)
+  lastPurchaseDate  DateTime?
+  
+  // Perishable
+  isPerishable      Boolean           @default(false)
+  shelfLifeDays     Int?
+  
+  // Supplier
+  defaultSupplierId String?
+  defaultSupplier   Supplier?         @relation(fields: [defaultSupplierId], references: [id], onDelete: SetNull)
+  leadTimeDays      Int               @default(1)
+  
+  // Status
+  isActive          Boolean           @default(true)
+  isRawMaterial     Boolean           @default(true)
+  
+  // External
+  externalId        String?
+  imageUrl          String?
+  
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  
+  // Relations
+  movements         StockMovement[]
+  recipeIngredients RecipeIngredient[]
+  portioningAsRaw   PortioningProcess[] @relation("RawProduct")
+  portioningAsOutput PortioningProcess[] @relation("OutputProduct")
+  purchaseSuggestions PurchaseSuggestion[]
+  consumptionAnomalies ConsumptionAnomaly[]
+  stockBatches      StockBatch[]
+  inventoryItems    InventoryItem[]
+  recipesAsOutput   Recipe[] @relation("RecipeOutput")
+  stockRequestItems StockRequestItem[]
+  stockRequestTemplateItems StockRequestTemplateItem[]
+  purchaseListItems PurchaseListItem[]
+  
+  @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
+  @@index([organizationId])
+  @@index([categoryId])
+  @@index([name])
+}
+
+model Supplier {
+  id              String      @id @default(cuid())
+  // restaurantId removed - Suppliers are Org wide
+  
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  name            String
+  tradeName       String?
+  cnpj            String?
+  email           String?
+  phone           String?
+  whatsapp        String?
+  
+  // Address
+  street          String?
+  city            String?
+  state           String?
+  zipCode         String?
+  
+  // Payment
+  paymentTerms    String?
+  
+  // Rating
+  rating          Float?
+  notes           String?
+  
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  products        Product[]
+  movements       StockMovement[]
+  
+  @@index([organizationId])
+}
+
+enum MovementType {
+  IN          // Purchase/entry
+  OUT         // Sale/consumption
+  ADJUSTMENT  // Inventory adjustment
+  TRANSFER    // Transfer between locations
+  WASTE       // Spoilage/waste
+  PRODUCTION  // Used in production
+  RETURN      // Return to supplier
+}
+
+enum MovementReferenceType {
+  PURCHASE
+  SALE
+  RECIPE
+  ADJUSTMENT
+  PORTIONING
+  TRANSFER
+  WASTE
+  INVENTORY
+  INTEGRATION
+}
+
+model StockMovement {
+  id                  String                @id @default(cuid())
+  productId           String
+  product             Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  type                MovementType
+  quantity            Float
+  unit                String
+  
+  // Cost
+  costPerUnit         Float                 @default(0)
+  totalCost           Float                 @default(0)
+  
+  // Stock before/after
+  stockBefore         Float                 @default(0)
+  stockAfter          Float                 @default(0)
+  
+  // Reference
+  referenceType       MovementReferenceType?
+  referenceId         String?
+  
+  // Supplier (for purchases)
+  supplierId          String?
+  supplier            Supplier?             @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  invoiceNumber       String?
+  
+  // Batch tracking
+  batchId             String?
+  batch               StockBatch?           @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  
+  notes               String?
+  
+  // Audit
+  userId              String?
+  user                User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  createdAt           DateTime              @default(now())
+  
+  organizationId      String?
+  
+  @@index([productId])
+  @@index([type])
+  @@index([createdAt])
+  @@index([referenceType, referenceId])
+  @@index([organizationId])
+}
+
+model StockBatch {
+  id              String          @id @default(cuid())
+  productId       String
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  batchNumber     String
+  quantity        Float
+  remainingQty    Float
+  costPerUnit     Float
+  
+  manufactureDate DateTime?
+  expirationDate  DateTime?
+  
+  createdAt       DateTime        @default(now())
+  
+  movements       StockMovement[]
+  
+  organizationId  String?
+  
+  @@index([productId])
+  @@index([expirationDate])
+  @@index([organizationId])
+}
+
+// ==========================================
+// RECIPES / TECHNICAL SHEETS (Phase 1)
+// ==========================================
+
+enum RecipeType {
+  TRANSFORMED_ITEM
+  PORTIONING
+  FINAL_PRODUCT
+  COMBO
+}
+
+enum RecipeStatus {
+  DRAFT
+  INCOMPLETE
+  COMPLETE
+}
+
+model RecipeCategory {
+  id              String      @id @default(cuid())
+  // restaurantId removed - Recipe Categories are Org wide
+  
+  name            String
+  
+  recipes         Recipe[]
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Recipe {
+  id              String            @id @default(cuid())
+  // restaurantId removed - Recipes are Org wide
+  
+  organizationId  String?
+  organization    Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  
+  type            RecipeType        @default(FINAL_PRODUCT)
+  status          RecipeStatus      @default(DRAFT)
+  
+  // Categories
+  recipeCategoryId String?
+  recipeCategory   RecipeCategory?  @relation(fields: [recipeCategoryId], references: [id], onDelete: SetNull)
+  
+  // Legacy Category (Product Category) - keeping for backward compatibility if needed, or migration
+  productCategoryId String?
+  productCategory   ProductCategory? @relation(fields: [productCategoryId], references: [id], onDelete: SetNull)
+  
+  // Output Product (for Transformed/Portioning)
+  outputProductId String?
+  outputProduct   Product?          @relation("RecipeOutput", fields: [outputProductId], references: [id], onDelete: SetNull)
+  
+  // Yield
+  yieldQuantity   Float             @default(1)
+  yieldUnit       String            @default("un")
+  
+  // Cost
+  currentCost     Float             @default(0)
+  costPerUnit     Float             @default(0)
+  costHistory     Json?             // [{ date, cost }]
+  
+  // Pricing
+  targetCmv       Float?            // Target CMV for this recipe
+  suggestedPrice  Float?
+  currentPrice    Float?
+  
+  // Additional costs
+  packagingCost   Float             @default(0)
+  laborCost       Float             @default(0)
+  overheadPercent Float             @default(0)
+  
+  // Time
+  prepTimeMinutes Int?
+  cookTimeMinutes Int?
+  
+  // Version control
+  version         Int               @default(1)
+  isActive        Boolean           @default(true)
+  
+  // Media
+  imageUrl        String?
+  instructions    String?
+  
+  // External (from integration)
+  externalId      String?
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  ingredients     RecipeIngredient[]
+  pricingSuggestions PricingSuggestion[]
+  itemPerformances ItemPerformance[]
+  portioningBatches PortioningBatch[]
+  usedAsIngredient RecipeIngredient[] @relation("SubRecipe")
+  
+  @@index([recipeCategoryId])
+  @@index([name])
+  @@index([organizationId])
+}
+
+enum IngredientType {
+  PRODUCT
+  RECIPE
+}
+
+model RecipeIngredient {
+  id              String          @id @default(cuid())
+  recipeId        String
+  recipe          Recipe          @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  ingredientType  IngredientType
+  
+  // For PRODUCT type:
+  productId       String?
+  product         Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // For RECIPE type (used in Combos or when using a Transformed Item defined as Recipe):
+  subRecipeId     String?
+  subRecipe       Recipe?         @relation("SubRecipe", fields: [subRecipeId], references: [id])
+  
+  quantity        Float
+  unit            String
+  
+  // Cost snapshot
+  costSnapshot    Float           @default(0)
+  
+  notes           String?
+  isOptional      Boolean         @default(false)
+  
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  
+  @@index([recipeId])
+  @@index([productId])
+  @@index([subRecipeId])
+}
+
+enum SalesChannel {
+  DINE_IN
+  TAKEOUT
+  DELIVERY_OWN
+  DELIVERY_IFOOD
+  DELIVERY_RAPPI
+  DELIVERY_UBER
+}
+
+model PricingSuggestion {
+  id              String        @id @default(cuid())
+  recipeId        String
+  recipe          Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  channel         SalesChannel
+  
+  // Costs
+  recipeCost      Float
+  packagingCost   Float         @default(0)
+  deliveryFee     Float         @default(0)
+  platformFee     Float         @default(0) // % fee from iFood, etc
+  
+  // Pricing
+  suggestedPrice  Float
+  currentPrice    Float?
+  competitorPrice Float?
+  
+  // Margins
+  markupPercent   Float
+  marginPercent   Float
+  marginAmount    Float
+  
+  generatedAt     DateTime      @default(now())
+  
+  @@index([recipeId])
+  @@index([channel])
+}
+
+// ==========================================
+// PORTIONING (Phase 2)
+// ==========================================
+
+model PortioningProcess {
+  id              String            @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  name            String
+  description     String?
+  
+  // Input
+  rawProductId    String
+  rawProduct      Product           @relation("RawProduct", fields: [rawProductId], references: [id], onDelete: Cascade)
+  
+  // Output
+  outputProductId String?
+  outputProduct   Product?          @relation("OutputProduct", fields: [outputProductId], references: [id], onDelete: SetNull)
+  
+  // Expected yields
+  yieldPercent    Float             @default(100)
+  wastePercent    Float             @default(0)
+  
+  // Additional costs
+  laborCost       Float             @default(0)
+  energyCost      Float             @default(0)
+  
+  // Standard deviation for alerts
+  yieldStdDev     Float?
+  
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  // batches         PortioningBatch[] // Deprecated relationship in favor of Recipe? Keeping for now.
+  
+  organizationId  String?
+  
+  @@index([costCenterId])
+  @@index([organizationId])
+}
+
+model PortioningBatch {
+  id                  String            @id @default(cuid())
+  
+  // Optional link to old Process model (deprecated?)
+  processId           String?
+  // process             PortioningProcess? @relation(fields: [processId], references: [id], onDelete: SetNull)
+  
+  // New: Link to Recipe (Type: PORTIONING)
+  recipeId            String?
+  recipe              Recipe?           @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  // Input
+  rawQuantity         Float
+  rawUnit             String
+  rawCost             Float
+  
+  // Output
+  outputQuantity      Float
+  outputUnit          String
+  outputCostPerUnit   Float
+  
+  // Actual vs expected
+  actualYieldPercent  Float
+  actualWastePercent  Float
+  
+  // Who and when
+  processedAt         DateTime          @default(now())
+  processedById       String?
+  processedBy         User?             @relation(fields: [processedById], references: [id], onDelete: SetNull)
+  
+  notes               String?
+  
+  @@index([processId])
+  @@index([recipeId])
+  @@index([processedAt])
+}
+
+// ==========================================
+// CMV - COST OF GOODS SOLD (Phase 2)
+// ==========================================
+
+model CMVSnapshot {
+  id                  String          @id @default(cuid())
+  costCenterId        String
+  costCenter          CostCenter      @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  date                DateTime        @db.Date
+  
+  // Revenue
+  revenue             Float           @default(0)
+  orderCount          Int             @default(0)
+  avgTicket           Float           @default(0)
+  
+  // CMV
+  theoreticalCogs     Float           @default(0)
+  realCogs            Float           @default(0)
+  
+  // Percentages
+  theoreticalPercent  Float           @default(0)
+  realPercent         Float           @default(0)
+  wastePercent        Float           @default(0)
+  wasteAmount         Float           @default(0)
+  
+  // Breakdown
+  byCategory          Json?           // [{ categoryId, revenue, cogs, percent }]
+  byChannel           Json?           // [{ channel, revenue, cogs, percent }]
+  
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  
+  @@unique([costCenterId, date])
+  @@index([costCenterId])
+  @@index([date])
+}
+
+// ==========================================
+// MENU ANALYSIS (Phase 2)
+// ==========================================
+
+model MenuAnalysis {
+  id              String            @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Totals
+  totalRevenue    Float             @default(0)
+  totalItemsSold  Int               @default(0)
+  totalCost       Float             @default(0)
+  
+  // Thresholds used
+  popularityThreshold Float         @default(0.7)
+  profitabilityThreshold Float      @default(0.7)
+  
+  createdAt       DateTime          @default(now())
+  
+  // Relations
+  items           ItemPerformance[]
+  
+  @@index([costCenterId])
+  @@index([periodStart, periodEnd])
+}
+
+enum ABCClassification {
+  A
+  B
+  C
+}
+
+enum MatrixClassification {
+  STAR           // High popularity, high profit
+  CASH_COW       // High popularity, low profit
+  PUZZLE         // Low popularity, high profit
+  DOG            // Low popularity, low profit
+}
+
+enum RecommendedAction {
+  MAINTAIN
+  PROMOTE
+  REPRICE
+  REFORMULATE
+  REMOVE
+  INVESTIGATE
+}
+
+model ItemPerformance {
+  id                    String              @id @default(cuid())
+  analysisId            String
+  analysis              MenuAnalysis        @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  
+  recipeId              String
+  recipe                Recipe              @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  
+  // Sales
+  quantitySold          Int                 @default(0)
+  revenue               Float               @default(0)
+  
+  // Cost
+  cost                  Float               @default(0)
+  marginAmount          Float               @default(0)
+  marginPercent         Float               @default(0)
+  
+  // Scores (0-100)
+  popularityScore       Float               @default(0)
+  profitabilityScore    Float               @default(0)
+  
+  // Classifications
+  abcClassification     ABCClassification?
+  matrixClassification  MatrixClassification?
+  
+  // Recommendations
+  recommendedAction     RecommendedAction?
+  actionReasonning       String?
+  
+  @@index([analysisId])
+  @@index([recipeId])
+}
+
+// ==========================================
+// ALERTS (Phase 2)
+// ==========================================
+
+enum AlertType {
+  STOCK_LOW
+  STOCK_EXPIRING
+  CMV_HIGH
+  COST_INCREASE
+  MARGIN_NEGATIVE
+  YIELD_LOW
+  INTEGRATION_ERROR
+  ANOMALY_DETECTED
+  GOAL_ACHIEVED
+  GOAL_NEAR
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Alert {
+  id              String        @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  type            AlertType
+  severity        AlertSeverity @default(MEDIUM)
+  
+  title           String
+  message         String
+  data            Json?
+  
+  actionUrl       String?
+  
+  isRead          Boolean       @default(false)
+  readAt          DateTime?
+  readById        String?
+  readBy          User?         @relation(fields: [readById], references: [id], onDelete: SetNull)
+  
+  createdAt       DateTime      @default(now())
+  expiresAt       DateTime?
+  
+  @@index([costCenterId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  WHATSAPP
+  PUSH
+}
+
+model AlertRule {
+  id                    String                @id @default(cuid())
+  costCenterId          String
+  costCenter            CostCenter            @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  type                  AlertType
+  name                  String
+  
+  // Conditions (JSON structure depends on type)
+  conditions            Json
+  
+  // Notification settings
+  notificationChannels  NotificationChannel[]
+  
+  isActive              Boolean               @default(true)
+  
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  
+  @@index([costCenterId])
+  @@index([type])
+}
+
+// ==========================================
+// AI PURCHASE AGENT (Phase 3)
+// ==========================================
+
+enum SuggestionPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model PurchaseSuggestion {
+  id                    String              @id @default(cuid())
+  costCenterId          String
+  costCenter            CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  productId             String
+  product               Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Current state
+  currentStock          Float
+  avgDailyConsumption   Float
+  
+  // Suggestion
+  suggestedQuantity     Float
+  suggestedUnit         String
+  reorderPoint          Float
+  
+  // Timing
+  leadTimeDays          Int
+  estimatedRunoutDate   DateTime?
+  
+  // Priority
+  priority              SuggestionPriority  @default(MEDIUM)
+  
+  // AI reasoning
+  reasoning             String?
+  confidence            Float               @default(0.5)
+  
+  // Status
+  isAccepted            Boolean?
+  acceptedAt            DateTime?
+  acceptedQuantity      Float?
+  
+  generatedAt           DateTime            @default(now())
+  expiresAt             DateTime?
+  
+  @@index([costCenterId])
+  @@index([productId])
+  @@index([priority])
+}
+
+enum AnomalyType {
+  CONSUMPTION_HIGH
+  CONSUMPTION_LOW
+  WASTE_HIGH
+  PATTERN_UNUSUAL
+  STOCK_DISCREPANCY
+}
+
+model ConsumptionAnomaly {
+  id              String        @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  anomalyType     AnomalyType
+  severity        AlertSeverity @default(MEDIUM)
+  
+  expectedValue   Float
+  actualValue     Float
+  deviationPercent Float
+  
+  // AI analysis
+  aiAnalysis      String?
+  suggestedAction String?
+  
+  // Period
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Status
+  isResolved      Boolean       @default(false)
+  resolvedAt      DateTime?
+  resolution      String?
+  
+  detectedAt      DateTime      @default(now())
+  
+  @@index([costCenterId])
+  @@index([productId])
+  @@index([anomalyType])
+}
+
+// ==========================================
+// GOALS & GAMIFICATION (Phase 4)
+// ==========================================
+
+enum GoalType {
+  REVENUE
+  ORDER_COUNT
+  AVG_TICKET
+  CMV_PERCENT
+  ITEMS_SOLD
+  SPECIFIC_PRODUCT
+  WASTE_REDUCTION
+}
+
+enum GoalPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  CUSTOM
+}
+
+model Goal {
+  id              String      @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  // Target
+  userId          String?
+  user            User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId          String?
+  
+  // Goal definition
+  type            GoalType
+  name            String
+  description     String?
+  
+  targetValue     Float
+  currentValue    Float       @default(0)
+  
+  // Period
+  period          GoalPeriod
+  periodStart     DateTime
+  periodEnd       DateTime
+  
+  // Reward
+  rewardType      String?
+  rewardValue     String?
+  rewardPoints    Int         @default(0)
+  
+  // Status
+  isActive        Boolean     @default(true)
+  achievedAt      DateTime?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  @@index([costCenterId])
+  @@index([userId])
+  @@index([periodStart, periodEnd])
+}
+
+enum BadgeCategory {
+  SALES
+  QUALITY
+  CONSISTENCY
+  TEAMWORK
+  MILESTONE
+}
+
+model Achievement {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  badgeName       String
+  badgeCategory   BadgeCategory
+  description     String
+  iconUrl         String?
+  
+  pointsAwarded   Int           @default(0)
+  
+  earnedAt        DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([badgeCategory])
+}
+
+// ==========================================
+// AUDIT LOG
+// ==========================================
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+}
+
+model AuditLog {
+  id              String        @id @default(cuid())
+  userId          String?
+  user            User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action          AuditAction
+  entityType      String
+  entityId        String?
+  
+  oldValues       Json?
+  newValues       Json?
+  
+  ipAddress       String?
+  userAgent       String?
+  
+  createdAt       DateTime      @default(now())
+  
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// ==========================================
+// INVENTORY CONTROL (New Feature)
+// ==========================================
+
+model InventorySession {
+  id            String            @id @default(cuid())
+  costCenterId  String
+  costCenter    CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  status        InventoryStatus   @default(OPEN)
+  startDate     DateTime          @default(now())
+  endDate       DateTime?
+  
+  // Statistics
+  precision     Float?            // Overall precision percentage (0-100)
+  itemsCount    Int               @default(0)
+  itemsCorrect  Int               @default(0)
+  
+  notes         String?
+  createdBy     String?           // User ID name snapshot
+  shareToken    String?           @unique // Token for public sharing without login
+  
+  items         InventoryItem[]
+  
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([costCenterId])
+}
+
+model InventoryItem {
+  id                  String           @id @default(cuid())
+  inventorySessionId  String
+  inventorySession    InventorySession @relation(fields: [inventorySessionId], references: [id], onDelete: Cascade)
+  
+  productId           String
+  product             Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  // Snapshots
+  productName         String?          // Snapshot in case product is deleted
+  categoryName        String?          
+  unit                String?
+  costPerUnit         Float?
+  
+  expectedQuantity    Float            // System stock at start of count
+  countedQuantity     Float?           // Actual input
+  
+  difference          Float?           // counted - expected
+  isCorrect           Boolean          @default(false) // If difference is within tolerance (0)
+  
+  countedAt           DateTime?
+  
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([inventorySessionId, productId])
+  @@index([inventorySessionId])
+}
+
+enum InventoryStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+// ==========================================
+// STOCK REQUESTS (New Feature)
+// ==========================================
+
+enum StockRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum WorkShift {
+  DAY
+  NIGHT
+}
+
+model StockRequest {
+  id                String              @id @default(cuid())
+  code              String              // Friendly ID like REQ-001
+  costCenterId      String
+  costCenter        CostCenter          @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+
+  shift             WorkShift           @default(DAY)
+
+  createdByUserId   String
+  createdBy         User                @relation("CreatedRequests", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  status            StockRequestStatus  @default(PENDING)
+  chefObservation   String?
+
+  approvedAt        DateTime?
+  approvedByUserId  String?
+  approvedBy        User?               @relation("ApprovedRequests", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  // Relations
+  items             StockRequestItem[]
+  comments          StockRequestComment[]
+  
+  organizationId    String?
+
+  @@unique([costCenterId, code])
+  @@index([costCenterId])
+  @@index([createdByUserId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+model StockRequestItem {
+  id                String        @id @default(cuid())
+  stockRequestId    String
+  stockRequest      StockRequest  @relation(fields: [stockRequestId], references: [id], onDelete: Cascade)
+
+  productId         String
+  product           Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Snapshots
+  productNameSnapshot String
+  unitSnapshot        String
+
+  quantityRequested Float
+  quantityApproved  Float?
+  
+  notes             String?
+
+  createdAt         DateTime      @default(now())
+
+  @@index([stockRequestId])
+  @@index([productId])
+}
+
+model StockRequestComment {
+  id                String        @id @default(cuid())
+  stockRequestId    String
+  stockRequest      StockRequest  @relation(fields: [stockRequestId], references: [id], onDelete: Cascade)
+
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  message           String
+  
+  createdAt         DateTime      @default(now())
+
+  @@index([stockRequestId])
+}
+
+model StockRequestTemplate {
+  id                String        @id @default(cuid())
+  costCenterId      String
+  costCenter        CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+
+  name              String?       // "Lista Padrão", "Lista Segunda-feira", etc.
+  
+  createdByUserId   String
+  createdBy         User          @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  items             StockRequestTemplateItem[]
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  organizationId    String?
+
+  @@index([costCenterId])
+  @@index([createdByUserId])
+  @@index([organizationId])
+}
+
+model StockRequestTemplateItem {
+  id                String               @id @default(cuid())
+  templateId        String
+  template          StockRequestTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  productId         String
+  product           Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  standardQuantity  Float                @default(0)
+
+  @@unique([templateId, productId])
+}
+
+// ==========================================
+// PDV SYSTEM (Point of Sale)
+// ==========================================
+
+enum PdvOrderType {
+  DELIVERY
+  RETIRADA
+  SALAO
+}
+
+enum PdvOrderStatus {
+  NOVO
+  EM_PREPARO
+  PRONTO
+  EM_ENTREGA
+  CONCLUIDO
+  CANCELADO
+}
+
+enum PdvSalesChannel {
+  PRESENCIAL
+  SITE
+  WHATSAPP
+  IFOOD
+  RAPPI
+  UBER_EATS
+  APP_PROPRIO
+}
+
+enum PaymentMethod {
+  DINHEIRO
+  CARTAO_CREDITO
+  CARTAO_DEBITO
+  PIX
+  VALE_REFEICAO
+  VALE_ALIMENTACAO
+  CORTESIA
+}
+
+enum CashMovementType {
+  VENDA
+  SANGRIA
+  SUPRIMENTO
+  AJUSTE
+}
+
+enum TableStatus {
+  LIVRE
+  OCUPADA
+  RESERVADA
+}
+
+enum PaymentStatus {
+  PENDENTE
+  PAGO
+  ESTORNADO
+}
+
+enum CashSessionStatus {
+  ABERTO
+  FECHADO
+}
+
+model CashSession {
+  id              String            @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+
+  status          CashSessionStatus @default(ABERTO)
+  openedAt        DateTime          @default(now())
+  closedAt        DateTime?
+
+  openedByUserId  String
+  openedBy        User              @relation("CashSessionOpener", fields: [openedByUserId], references: [id], onDelete: Cascade)
+
+  closedByUserId  String?
+  closedBy        User?             @relation("CashSessionCloser", fields: [closedByUserId], references: [id], onDelete: SetNull)
+
+  initialCash     Float             @default(0)
+  finalCash       Float?
+  totalSales      Float             @default(0)
+  totalWithdrawals Float            @default(0)
+  totalSupplies   Float             @default(0)
+  totalAdjustments Float            @default(0)
+
+  notes           String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  movements       CashMovement[]
+  orders          PdvOrder[]
+
+  organizationId  String?
+
+  @@index([costCenterId])
+  @@index([openedByUserId])
+  @@index([closedByUserId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+model CashMovement {
+  id              String            @id @default(cuid())
+  cashSessionId   String
+  cashSession     CashSession       @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+
+  type            CashMovementType
+  amount          Float
+  description     String?
+
+  createdByUserId String?
+  createdBy       User?             @relation("CashMovements", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime          @default(now())
+
+  @@index([cashSessionId])
+  @@index([type])
+  @@index([createdByUserId])
+}
+
+// Customer for PDV
+model Customer {
+  id              String            @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter        @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  name            String
+  phone           String?
+  email           String?
+  cpf             String?
+  notes           String?
+  
+  isActive        Boolean           @default(true)
+  
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  
+  // Relations
+  addresses       CustomerAddress[]
+  orders          PdvOrder[]
+  
+  organizationId  String?
+  
+  @@index([costCenterId])
+  @@index([organizationId])
+  @@index([phone])
+  @@index([name])
+}
+
+model CustomerAddress {
+  id              String      @id @default(cuid())
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  
+  label           String?     // "Casa", "Trabalho", etc.
+  street          String
+  number          String?
+  complement      String?
+  neighborhood    String
+  city            String
+  state           String
+  zipCode         String
+  reference       String?     // Ponto de referência
+  
+  isDefault       Boolean     @default(false)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  orders          PdvOrder[]
+  
+  @@index([customerId])
+}
+
+// Tables for dine-in orders
+model RestaurantTable {
+  id              String        @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter    @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  identifier      String        // "Mesa 1", "Mesa 2", "Balcão 1", etc.
+  capacity        Int           @default(4)
+  status          TableStatus   @default(LIVRE)
+  
+  currentOrderId  String?       // Currently active order
+  
+  isActive        Boolean       @default(true)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  
+  // Relations
+  orders          PdvOrder[]
+  
+  @@unique([costCenterId, identifier])
+  @@index([costCenterId])
+  @@index([status])
+}
+
+// PDV Order
+model PdvOrder {
+  id                  String            @id @default(cuid())
+  code                String            // Friendly code like "001", "002"
+  costCenterId        String
+  costCenter          CostCenter        @relation("PdvOrders", fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  // Type and status
+  orderType           PdvOrderType
+  status              PdvOrderStatus    @default(NOVO)
+  salesChannel        PdvSalesChannel   @default(PRESENCIAL)
+  
+  // Customer (optional for quick sales)
+  customerId          String?
+  customer            Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName        String?           // Snapshot or manual input
+  customerPhone       String?
+  
+  // Delivery specific
+  addressId           String?
+  address             CustomerAddress?  @relation(fields: [addressId], references: [id], onDelete: SetNull)
+  deliveryAddressText String?           // Full address text snapshot
+  deliveryFee         Float             @default(0)
+  
+  // Dine-in specific
+  tableId             String?
+  table               RestaurantTable?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  tableIdentifier     String?           // Snapshot
+  serviceFee          Float             @default(0)
+  serviceFeePercent   Float             @default(0)
+  
+  // Values
+  subtotal            Float             @default(0)
+  discount            Float             @default(0)
+  discountReason      String?
+  total               Float             @default(0)
+  
+  // Payment status
+  totalPaid           Float             @default(0)
+  changeAmount        Float             @default(0)
+  
+  // Notes
+  notes               String?
+  kitchenNotes        String?
+  
+  // Timing
+  estimatedReadyAt    DateTime?
+  readyAt             DateTime?
+  deliveredAt         DateTime?
+  
+  // Audit
+  createdByUserId     String?
+  createdBy           User?             @relation("PdvOrderCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  
+  // Relations
+  items               PdvOrderItem[]
+  payments            PdvPayment[]
+  statusHistory       PdvOrderStatusHistory[]
+  
+  // Cash Session Link
+  cashSessionId       String?
+  cashSession         CashSession?      @relation(fields: [cashSessionId], references: [id], onDelete: SetNull)
+  
+  organizationId      String?
+  
+  @@unique([costCenterId, code])
+  @@index([costCenterId])
+  @@index([status])
+  @@index([orderType])
+  @@index([createdAt])
+  @@index([customerId])
+  @@index([cashSessionId])
+  @@index([organizationId])
+}
+
+model PdvOrderItem {
+  id                  String      @id @default(cuid())
+  orderId             String
+  order               PdvOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  // Product reference
+  // Product reference
+  productId           String?
+  recipeId            String?
+  
+  // Product reference
+  
+  // Snapshots
+  productName         String
+  productSku          String?
+  
+  quantity            Float       @default(1)
+  unit                String      @default("un")
+  unitPrice           Float
+  totalPrice          Float
+  
+  // Customization
+  notes               String?     // "Sem cebola", "Bem passado", etc.
+  additionals         Json?       // [{ name, price }]
+  additionalsTotal    Float       @default(0)
+  
+  // Status
+  isPrinted           Boolean     @default(false)
+  isCancelled         Boolean     @default(false)
+  cancelReason        String?
+  
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  
+  @@index([orderId])
+  @@index([productId])
+}
+
+model PdvOrderStatusHistory {
+  id              String          @id @default(cuid())
+  orderId         String
+  order           PdvOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  fromStatus      PdvOrderStatus?
+  toStatus        PdvOrderStatus
+  
+  notes           String?
+  
+  changedById     String?
+  changedBy       User?           @relation("StatusChanges", fields: [changedById], references: [id], onDelete: SetNull)
+  
+  createdAt       DateTime        @default(now())
+  
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+model PdvPayment {
+  id                  String          @id @default(cuid())
+  orderId             String
+  order               PdvOrder        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  method              PaymentMethod
+  status              PaymentStatus   @default(PENDENTE)
+  
+  amount              Float
+  receivedAmount      Float?          // For cash payments
+  changeAmount        Float           @default(0)
+  
+  // Card details (optional)
+  cardBrand           String?
+  cardLastDigits      String?
+  authorizationCode   String?
+  
+  // Cash session link
+  cashMovementId      String?
+  
+  notes               String?
+  
+  processedAt         DateTime?
+  createdAt           DateTime        @default(now())
+  
+  @@index([orderId])
+  @@index([method])
+}
+
+// DELETED DUPLICATE CashSession and CashMovement (Moved to line 1586)
+
+// ==========================================
+// PURCHASE LISTS (Lista de Compras)
+// ==========================================
+
+enum PurchaseFilterMode {
+  ALL
+  SUPPLIER
+  CATEGORY
+}
+
+enum PurchaseListTriggerType {
+  MANUAL
+  POS_INVENTARIO
+  ESTOQUE_CRITICO
+  DATA_FIXA
+}
+
+enum PurchaseListStatus {
+  ABERTA
+  EM_ANDAMENTO
+  CONCLUIDA
+  CANCELADA
+}
+
+enum PurchaseListItemStatus {
+  PENDENTE
+  CHEGOU
+  PARCIAL
+  CANCELADO
+}
+
+enum RecurrenceType {
+  NENHUM
+  SEMANAL
+  MENSAL
+}
+
+model PurchaseList {
+  id                String                  @id @default(cuid())
+  costCenterId      String
+  costCenter        CostCenter              @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  triggerType       PurchaseListTriggerType
+  description       String?
+  notes             String?
+  status            PurchaseListStatus      @default(ABERTA)
+  
+  createdById       String
+  createdBy         User                    @relation("PurchaseListCreator", fields: [createdById], references: [id])
+  
+  organizationId    String?
+  
+  @@index([organizationId])
+  
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  completedAt       DateTime?
+  
+  items             PurchaseListItem[]
+  
+  @@index([costCenterId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PurchaseListItem {
+  id                      String                    @id @default(cuid())
+  purchaseListId          String
+  purchaseList            PurchaseList              @relation(fields: [purchaseListId], references: [id], onDelete: Cascade)
+  
+  productId               String
+  product                 Product                   @relation(fields: [productId], references: [id])
+  
+  // Snapshots at generation time
+  productNameSnapshot     String
+  unitSnapshot            String
+  reorderPointSnapshot    Float
+  currentStockSnapshot    Float
+  
+  // Purchase quantities
+  suggestedQuantity       Float
+  confirmedQuantity       Float?
+  
+  // Status
+  status                  PurchaseListItemStatus    @default(PENDENTE)
+  
+  // Confirmation
+  confirmedAt             DateTime?
+  confirmedById           String?
+  confirmedBy             User?                     @relation("PurchaseListItemConfirmer", fields: [confirmedById], references: [id])
+  
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  
+  @@index([purchaseListId])
+  @@index([productId])
+  @@index([status])
+}
+
+model PurchaseConfig {
+  id                              String          @id @default(cuid())
+  costCenterId                    String          @unique
+  costCenter                      CostCenter      @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  // Post-inventory trigger
+  triggerPostInventory            Boolean         @default(false)
+  
+  // Critical stock trigger
+  triggerCriticalStock            Boolean         @default(false)
+  criticalStockPercentage         Float           @default(20)
+  
+  // Fixed dates trigger
+  triggerFixedDates               Boolean         @default(false)
+  recurrenceType                  RecurrenceType  @default(NENHUM)
+  weekDays                        Int[]           @default([])
+  monthDays                       Int[]           @default([])
+
+  // Filter Config
+  filterMode                      PurchaseFilterMode @default(ALL)
+  filterSupplierIds               String[]           @default([])
+  filterCategoryIds               String[]           @default([])
+  
+  createdAt                       DateTime        @default(now())
+  updatedAt                       DateTime        @updatedAt
+}
+
+// ==========================================
+// EVENTS & TICKETING (Phase 2 - Platform)
+// ==========================================
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  ENDED
+}
+
+model Event {
+  id              String      @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  slug            String      // URL friendly
+  description     String?
+  bannerUrl       String?
+
+  status          EventStatus @default(DRAFT)
+
+  startsAt        DateTime
+  endsAt          DateTime?
+
+  // Location
+  city            String?
+  state           String?
+  locationName    String?
+  address         String?
+
+  // Metrics
+  ticketsSold     Int         @default(0)
+  revenue         Float       @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  tickets         Ticket[]
+  
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([startsAt])
+}
+
+model Ticket {
+  id              String      @id @default(cuid())
+  eventId         String
+  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  name            String      // e.g. "VIP", "General"
+  description     String?
+  price           Float
+  currency        String      @default("BRL")
+
+  quantityTotal   Int
+  quantitySold    Int         @default(0)
+
+  isActive        Boolean     @default(true)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([eventId])
+}
+
+// ==========================================
+// PLATFORM LOGS
+// ==========================================
+
+model PlatformAuditLog {
+  id              String      @id @default(cuid())
+  actorUserId     String      // Who did it (System Master)
+  
+  action          String      // e.g. IMPERSONATE, SUSPEND_ORG
+  targetType      String      // ORG, USER, EVENT
+  targetId        String
+  
+  metadata        Json?
+  
+  createdAt       DateTime    @default(now())
+
+  @@index([actorUserId])
+  @@index([targetId])
+}
+
+model WebhookLog {
+  id              String      @id @default(cuid())
+  organizationId  String?     // Nullable if system-wide
+  
+  provider        String      // Stripe, Iugu, etc.
+  status          String      // SUCCESS, FAILURE
+  endpoint        String
+  payload         Json?
+  response        Json?
+  
+  attempts        Int         @default(1)
+  lastError       String?
+  
+  createdAt       DateTime    @default(now())
+  
+  @@index([organizationId])
+}
+
+// ==========================================
+// MENU / CARDÁPIO (Phase 4)
+// ==========================================
+
+model MenuCategory {
+  id              String      @id @default(cuid())
+  costCenterId    String
+  costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  
+  organizationId  String?
+  // Note: Menu Categories are usually per Cost Center for PDV, but we can allow Org level later.
+  // For now, linking to CostCenter as requested ("fonte oficial de produtos exibidos no PDV").
+  
+  name            String
+  sortOrder       Int         @default(0)
+  isActive        Boolean     @default(true)
+  
+  // Channels
+  activeForSalao    Boolean   @default(true)
+  activeForRetirada Boolean   @default(true)
+  activeForDelivery Boolean   @default(true)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  items           MenuItem[]
+  
+  @@index([costCenterId])
+  @@index([sortOrder])
+}
+
+enum MenuItemType {
+  SIMPLE
+  COMBO
+}
+
+model MenuItem {
+  id              String      @id @default(cuid())
+  
+  menuCategoryId  String
+  menuCategory    MenuCategory @relation(fields: [menuCategoryId], references: [id], onDelete: Cascade)
+  
+  name            String      // Display name
+  description     String?
+  imageUrl        String?
+  
+  type            MenuItemType @default(SIMPLE)
+  price           Float       @default(0) // Sale price
+  
+  isActive        Boolean     @default(true)
+  isFeatured      Boolean     @default(false)
+  displayInPdv    Boolean     @default(true)
+  
+  // Channels
+  activeForSalao    Boolean   @default(true)
+  activeForRetirada Boolean    @default(true)
+  activeForDelivery Boolean   @default(true)
+  
+  // Technical Sheet Link
+  recipeId        String?
+  recipe          Recipe?     @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  
+  // Cost & Pricing Snapshot
+  costSnapshot    Float?      // Snapshot of cost from recipe at time of link/update
+  markupPercent   Float?
+  taxPercent      Float?
+  
+  internalNotes   String?
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  
+  // Relations
+  optionGroups    MenuOptionGroup[]
+  comboItems      MenuItemCombo[]   @relation("ComboParent") // If type is COMBO
+  usedInCombos    MenuItemCombo[]   @relation("ComboChild")  // If used inside another combo
+  
+  @@index([menuCategoryId])
+  @@index([name])
+}
+
+model MenuItemCombo {
+  id              String      @id @default(cuid())
+  
+  menuItemId      String      // The Combo Item
+  menuItem        MenuItem    @relation("ComboParent", fields: [menuItemId], references: [id], onDelete: Cascade)
+  
+  childItemId     String      // The item included in the combo
+  childItem       MenuItem    @relation("ComboChild", fields: [childItemId], references: [id], onDelete: Cascade)
+  
+  quantity        Int         @default(1)
+  canSubstitute   Boolean     @default(false)
+  
+  @@index([menuItemId])
+}
+
+enum OptionSelectionType {
+  SINGLE
+  MULTIPLE
+}
+
+model MenuOptionGroup {
+  id              String      @id @default(cuid())
+  
+  menuItemId      String
+  menuItem        MenuItem    @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  
+  name            String      // e.g. "Tamanho", "Adicionais"
+  selectionType   OptionSelectionType @default(SINGLE)
+  
+  isRequired      Boolean     @default(false)
+  minOptions      Int         @default(0)
+  maxOptions      Int         @default(1)
+  
+  sortOrder       Int         @default(0)
+  
+  options         MenuOption[]
+  
+  @@index([menuItemId])
+}
+
+model MenuOption {
+  id              String      @id @default(cuid())
+  
+  optionGroupId   String
+  optionGroup     MenuOptionGroup @relation(fields: [optionGroupId], references: [id], onDelete: Cascade)
+  
+  name            String
+  price           Float       @default(0) // Additional price
+  
+  sortOrder       Int         @default(0)
+  isActive        Boolean     @default(true)
+  
+  // Simplify: no linking to product/recipe for the option itself yet, keeping it visual/price only as per prompt
+  // But strictly speaking, an option *could* consume stock. We'll leave that for Phase 4 extensions if requested.
+  
+  @@index([optionGroupId])
+}

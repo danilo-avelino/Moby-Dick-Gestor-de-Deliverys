@@ -18,6 +18,10 @@ export interface IntegrationConfig {
     credentials: IntegrationCredentials;
     webhookUrl?: string;
     sandboxMode: boolean;
+    // Context
+    integrationId?: string;
+    organizationId?: string;
+    costCenterId?: string;
 }
 
 // Order Types (normalized across platforms)

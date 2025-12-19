@@ -1,0 +1,133 @@
+
+// ==========================================
+// SCHEDULES (Escalas) - Phase 2-3
+// ==========================================
+
+model ScheduleSector {
+  id              String      @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  isActive        Boolean     @default(true)
+
+  // JSON Configuration
+  minStaffByWeekday Json?    // { "0": 2, "1": 3 ... }
+  maxStaffByWeekday Json?
+
+  employees       ScheduleEmployee[]
+  sectorOutputs   ScheduleSectorOutput[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([organizationId])
+}
+
+model ScheduleEmployee {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  sectorId        String
+  sector          ScheduleSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  name            String
+  
+  // Contracts / Preferences
+  workDaysPerWeek         Int
+  extraDaysOffDefault     Int
+  extraDaysOffOverride    Int?
+  
+  weeklyOffPreferenceMain Json? // [0, 6]
+  weeklyOffPreferenceExtra Json? 
+  unavailableWeekdays     Json?
+  
+  fixedOffDates           Json? // ISO Dates
+  fixedWorkDates          Json?
+  
+  maxConsecutiveWorkDays  Int?
+  priorityScore           Int   @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([organizationId])
+  @@index([sectorId])
+}
+
+model ScheduleMonthConfig {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  year            Int
+  month           Int
+  
+  teamExtraDaysOff        Int   @default(1)
+  maxExtraOffPerDayOrg    Int?
+  maxExtraOffPerDayPerSector Int?
+  
+  blockedDates            Json?
+  preferredExtraOffDates  Json?
+
+  createdById     String
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([organizationId, year, month])
+}
+
+model Schedule {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  year            Int
+  month           Int
+  
+  status          String      // DRAFT, FINAL
+  createdById     String
+  
+  sectorOutputs   ScheduleSectorOutput[]
+  changes         ScheduleChange[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([organizationId, year, month])
+}
+
+model ScheduleSectorOutput {
+  id              String      @id @default(cuid())
+  
+  scheduleId      String
+  schedule        Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  sectorId        String
+  sector          ScheduleSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  
+  data            Json        // The Matrix { userId: { 1: 'T', 2: 'F' } }
+  coverageByDay   Json
+  warnings        Json
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([scheduleId, sectorId])
+}
+
+model ScheduleChange {
+  id              String      @id @default(cuid())
+  scheduleId      String
+  schedule        Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  userId          String      // Actor
+  targetUserId    String      // Employee changed
+  day             Int
+  oldValue        String
+  newValue        String
+  reason          String?
+  
+  createdAt       DateTime    @default(now())
+  
+  @@index([scheduleId])
+}

@@ -71,7 +71,6 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-    }, async (request, reply) => {
         const limit = Math.min(parseInt(request.query.limit || '50', 10), 100);
 
         const where: any = {};

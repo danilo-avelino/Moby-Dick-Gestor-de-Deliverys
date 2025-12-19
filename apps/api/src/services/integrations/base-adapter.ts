@@ -1,5 +1,7 @@
 // Base Integration Adapter - Abstract class for all platform adapters
 
+import { IntegrationInbox } from 'database';
+
 import {
     IntegrationConfig,
     IntegrationCredentials,
@@ -38,6 +40,9 @@ export abstract class BaseIntegrationAdapter {
         data?: unknown
     ): Promise<T>;
 
+    // Processing
+    abstract processPayload(inboxItem: IntegrationInbox): Promise<void>;
+
     // Platform name
     abstract getPlatformName(): string;
 }
@@ -46,6 +51,11 @@ export abstract class BaseIntegrationAdapter {
 export abstract class SalesIntegrationAdapter extends BaseIntegrationAdapter {
     // Orders
     abstract fetchOrders(since?: Date): Promise<NormalizedOrder[]>;
+
+    // New Ingestion Pipeline (Optional during migration)
+    async ingestOrders?(since?: Date): Promise<number>;
+
+    abstract getOrderDetails(orderId: string): Promise<NormalizedOrder>;
     abstract getOrderDetails(orderId: string): Promise<NormalizedOrder>;
     abstract confirmOrder(orderId: string): Promise<void>;
     abstract rejectOrder(orderId: string, reason?: string): Promise<void>;

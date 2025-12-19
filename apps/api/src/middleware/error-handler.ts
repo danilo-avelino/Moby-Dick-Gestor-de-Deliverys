@@ -5,7 +5,7 @@ import type { ApiResponse, ApiError } from 'types';
 
 export function errorHandler(
     error: FastifyError,
-    _request: FastifyRequest,
+    request: FastifyRequest, // Changed _request to request to use request.log
     reply: FastifyReply
 ) {
     const response: ApiResponse = {

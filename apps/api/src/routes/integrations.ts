@@ -5,6 +5,8 @@ import { requireCostCenter, requireRole } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 import { UserRole, type ApiResponse } from 'types';
 import { integrationManager } from '../services/integrations/integration-manager';
+import { integrationInboxService } from '../services/integrations/integration-inbox.service';
+import { foodyWorkTimesService } from '../services/integrations/foody-work-times.service';
 
 // All platforms - Sales + Logistics
 const PLATFORMS = {
@@ -124,6 +126,53 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         return reply.send(response);
     });
 
+    // --- Inbox & Observability ---
+
+    fastify.get<{ Querystring: { integrationId?: string; status?: string; startDate?: string; endDate?: string; page?: string; limit?: string } }>('/inbox', {
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
+        schema: {
+            tags: ['Integrations'],
+            summary: 'Get integration inbox items',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const { integrationId, status, startDate, endDate, page, limit } = request.query;
+        if (integrationId) {
+            const integration = await prisma.integration.findFirst({
+                where: { id: integrationId, costCenterId: request.user!.costCenterId! }
+            });
+            if (!integration) throw errors.forbidden('Access denied');
+        }
+        const result = await integrationInboxService.listItems({
+            integrationId,
+            status: status as any,
+            startDate: startDate ? new Date(startDate) : undefined,
+            endDate: endDate ? new Date(endDate) : undefined,
+            page: page ? parseInt(page) : 1,
+            pageSize: limit ? parseInt(limit) : 50
+        });
+        return reply.send({ success: true, data: result });
+    });
+
+    fastify.post<{ Params: { itemId: string } }>('/inbox/:itemId/reprocess', {
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
+        schema: {
+            tags: ['Integrations'],
+            summary: 'Reprocess inbox item',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const item = await prisma.integrationInbox.findUnique({
+            where: { id: request.params.itemId },
+            include: { integration: true }
+        });
+        if (!item || item.integration.costCenterId !== request.user!.costCenterId!) {
+            throw errors.notFound('Item not found');
+        }
+        await integrationManager.reprocessInboxItem(request.params.itemId);
+        return reply.send({ success: true, message: 'Item reprocessed' });
+    });
+
     // Get integration details
     fastify.get<{ Params: { id: string } }>('/:id', {
         preHandler: [requireCostCenter],
@@ -178,7 +227,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Connect new integration
     fastify.post('/', {
-        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER)],
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
         schema: {
             tags: ['Integrations'],
             summary: 'Connect integration',
@@ -208,7 +257,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
                 costCenterId: request.user!.costCenterId!,
                 platform: body.platform,
                 name: body.name,
-                status: body.credentials ? 'PENDING_AUTH' : 'INACTIVE',
+                status: body.credentials ? 'CONFIGURED' : 'STOPPED',
                 credentials: body.credentials || {},
                 syncFrequencyMinutes: body.syncFrequencyMinutes,
                 metadata: body.subRestaurantId ? { subRestaurantId: body.subRestaurantId } : {},
@@ -232,7 +281,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Update credentials
     fastify.put<{ Params: { id: string } }>('/:id/credentials', {
-        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER)],
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
         schema: {
             tags: ['Integrations'],
             summary: 'Update integration credentials',
@@ -257,7 +306,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
             where: { id: request.params.id },
             data: {
                 credentials: body.credentials,
-                status: 'PENDING_AUTH',
+                status: 'CONFIGURED',
             },
         });
 
@@ -275,7 +324,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Test connection
     fastify.post<{ Params: { id: string } }>('/:id/test', {
-        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER)],
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
         schema: {
             tags: ['Integrations'],
             summary: 'Test integration connection',
@@ -305,6 +354,8 @@ export async function integrationRoutes(fastify: FastifyInstance) {
                 type: (PLATFORMS[integration.platform as PlatformKey]?.type || 'sales') as 'sales' | 'logistics',
                 credentials: integration.credentials as any,
                 syncInterval: integration.syncFrequencyMinutes,
+                organizationId: integration.organizationId || undefined,
+                costCenterId: integration.costCenterId,
             });
 
             if (added) {
@@ -321,7 +372,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         await prisma.integration.update({
             where: { id: integration.id },
             data: {
-                status: success ? 'ACTIVE' : 'ERROR',
+                status: success ? 'CONNECTED' : 'DEGRADED',
                 lastSyncAt: success ? new Date() : undefined,
             },
         });
@@ -339,7 +390,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Activate/Deactivate integration
     fastify.post<{ Params: { id: string } }>('/:id/toggle', {
-        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER)],
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
         schema: {
             tags: ['Integrations'],
             summary: 'Toggle integration status',
@@ -357,16 +408,18 @@ export async function integrationRoutes(fastify: FastifyInstance) {
             throw errors.notFound('Integration not found');
         }
 
-        const newStatus = integration.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+        const newStatus = integration.status === 'CONNECTED' ? 'STOPPED' : 'CONNECTED';
 
         // If activating, add to manager; if deactivating, remove
-        if (newStatus === 'ACTIVE') {
+        if (newStatus === 'CONNECTED') {
             await integrationManager.addIntegration({
                 id: integration.id,
                 platform: integration.platform,
                 type: (PLATFORMS[integration.platform as PlatformKey]?.type || 'sales') as 'sales' | 'logistics',
                 credentials: integration.credentials as any,
                 syncInterval: integration.syncFrequencyMinutes,
+                organizationId: integration.organizationId || undefined,
+                costCenterId: integration.costCenterId,
             });
         } else {
             integrationManager.removeIntegration(integration.id);
@@ -374,14 +427,14 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
         await prisma.integration.update({
             where: { id: integration.id },
-            data: { status: newStatus },
+            data: { status: newStatus as any },
         });
 
         const response: ApiResponse = {
             success: true,
             data: {
                 status: newStatus,
-                message: newStatus === 'ACTIVE' ? 'Integration activated' : 'Integration deactivated',
+                message: newStatus === 'CONNECTED' ? 'Integration activated' : 'Integration deactivated',
             },
         };
 
@@ -390,7 +443,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Trigger manual sync
     fastify.post<{ Params: { id: string } }>('/:id/sync', {
-        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER)],
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
         schema: {
             tags: ['Integrations'],
             summary: 'Trigger manual sync',
@@ -408,7 +461,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
             throw errors.notFound('Integration not found');
         }
 
-        if (integration.status !== 'ACTIVE') {
+        if (integration.status !== 'CONNECTED') {
             throw errors.badRequest('Integration is not active');
         }
 
@@ -424,7 +477,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         // Update integration status
         await prisma.integration.update({
             where: { id: integration.id },
-            data: { status: 'SYNCING' },
+            data: { status: 'INGESTING' },
         });
 
         // Trigger sync in background
@@ -442,7 +495,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
                 await prisma.integration.update({
                     where: { id: integration.id },
                     data: {
-                        status: 'ACTIVE',
+                        status: 'CONNECTED',
                         lastSyncAt: new Date(),
                         nextSyncAt: new Date(Date.now() + integration.syncFrequencyMinutes * 60 * 1000),
                     },
@@ -454,13 +507,13 @@ export async function integrationRoutes(fastify: FastifyInstance) {
                     data: {
                         status: 'FAILED',
                         completedAt: new Date(),
-                        errorMessage: error.message,
+                        errors: { message: error.message },
                     },
                 });
 
                 await prisma.integration.update({
                     where: { id: integration.id },
-                    data: { status: 'ERROR' },
+                    data: { status: 'DEGRADED' },
                 });
             });
 
@@ -517,7 +570,7 @@ export async function integrationRoutes(fastify: FastifyInstance) {
 
     // Disconnect integration
     fastify.delete<{ Params: { id: string } }>('/:id', {
-        preHandler: [requireRole(UserRole.ADMIN)],
+        preHandler: [requireRole(UserRole.ADMIN, UserRole.DIRETOR)],
         schema: {
             tags: ['Integrations'],
             summary: 'Disconnect integration',
@@ -548,6 +601,29 @@ export async function integrationRoutes(fastify: FastifyInstance) {
         };
 
         return reply.send(response);
+    });
+
+    // Trigger Foody Daily Ingestion (Manual Job)
+    fastify.post('/foody/ingest-daily', {
+        preHandler: [requireCostCenter, requireRole(UserRole.ADMIN, UserRole.MANAGER, UserRole.DIRETOR)],
+        schema: {
+            tags: ['Integrations'],
+            summary: 'Trigger Foody Daily Ingestion',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const bodySchema = z.object({
+            date: z.string().optional(), // YYYY-MM-DD
+        });
+        const { date } = bodySchema.parse(request.body);
+        const costCenterId = request.user!.costCenterId!;
+
+        try {
+            const stats = await foodyWorkTimesService.ingestDailyOrders(costCenterId, date);
+            return reply.send({ success: true, data: stats });
+        } catch (error: any) {
+            throw errors.badRequest(error.message || 'Ingestion failed');
+        }
     });
 
     // --- Order Operations (for sales integrations) ---

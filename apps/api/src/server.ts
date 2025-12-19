@@ -27,6 +27,7 @@ import { menuAnalysisRoutes } from './routes/menu-analysis';
 import { purchaseRoutes } from './routes/purchases';
 import { portioningRoutes } from './routes/portioning';
 import { workTimesRoutes } from './routes/work-times';
+import { menuRoutes } from './routes/menu';
 import { inventoryRoutes, inventoryPublicRoutes } from './routes/inventory';
 import { stockImportRoutes } from './routes/stock-import';
 import { recipeAIRoutes } from './routes/recipe-ai';
@@ -40,13 +41,14 @@ import { tablesRoutes } from './routes/tables';
 import { purchaseListRoutes, purchaseConfigRoutes } from './routes/purchase-lists';
 import { integrationManager } from './services/integrations/integration-manager';
 import { organizationRoutes } from './routes/organizations';
+import { scheduleRoutes } from './routes/schedules';
 import { platformRoutes } from './routes/platform';
 import { errorHandler } from './middleware/error-handler';
 
 const PORT = parseInt(process.env.API_PORT || '3001', 10);
 const HOST = process.env.API_HOST || '0.0.0.0';
 
-async function buildServer() {
+export async function buildServer() {
     const fastify = Fastify({
         logger: {
             level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
@@ -58,6 +60,35 @@ async function buildServer() {
                 },
             } : undefined,
         },
+    });
+
+    // Handle pre-parsed bodies (e.g. from Firebase Functions)
+    // Handle pre-parsed bodies (e.g. from Firebase Functions)
+    fastify.addContentTypeParser('application/json', {}, (req, payload, done) => {
+        // Firebase attaches body to the raw IncomingMessage (req.raw)
+        // Fastify Request (req) is a wrapper and body is not set yet
+        const rawBody = (req.raw as any).body;
+        if (rawBody) {
+            console.log('ContentTypeParser: Using req.raw.body');
+            done(null, rawBody);
+        } else {
+            let data = '';
+            payload.on('data', chunk => { data += chunk; });
+            payload.on('end', () => {
+                if (!data) {
+                    // Empty body handling (prevent JSON parse error on empty string)
+                    done(null, {});
+                    return;
+                }
+                console.log('ContentTypeParser: body parsing fallback (stream)');
+                try {
+                    done(null, JSON.parse(data));
+                } catch (err: any) {
+                    console.error('ContentTypeParser: Stream parse error:', err);
+                    done(err, undefined);
+                }
+            });
+        }
     });
 
 
@@ -78,6 +109,8 @@ async function buildServer() {
                 'http://localhost:5177',
                 'http://localhost:5178',
                 'http://localhost:5179',
+                'https://moby-dick-f15b4.web.app',
+                'https://moby-dick-f15b4.firebaseapp.com',
                 process.env.CORS_ORIGIN
             ].filter(Boolean);
 
@@ -155,7 +188,12 @@ async function buildServer() {
 
     // Health check
     fastify.get('/health', async () => {
-        return { status: 'ok', timestamp: new Date().toISOString() };
+        try {
+            await prisma.$queryRaw`SELECT 1`;
+            return { status: 'ok', db: 'connected', timestamp: new Date().toISOString() };
+        } catch (err: any) {
+            return { status: 'error', db: 'failed', error: err.message, timestamp: new Date().toISOString() };
+        }
     });
 
 
@@ -171,42 +209,47 @@ async function buildServer() {
     };
 
     // Register routes safely
-    await registerSafe(authRoutes, { prefix: '/api/auth' });
-    await registerSafe(platformRoutes, { prefix: '/api/platform' });
-    await registerSafe(organizationRoutes, { prefix: '/api/organizations' });
-    await registerSafe(costCenterRoutes, { prefix: '/api/restaurants' });
-    await registerSafe(productRoutes, { prefix: '/api/products' });
-    await registerSafe(categoryRoutes, { prefix: '/api/categories' });
-    await registerSafe(supplierRoutes, { prefix: '/api/suppliers' });
-    await registerSafe(stockRoutes, { prefix: '/api/stock' });
-    await registerSafe(recipeRoutes, { prefix: '/api/recipes' });
-    await registerSafe(recipeCategoriesRoutes, { prefix: '/api/recipe-categories' });
-    await registerSafe(cmvRoutes, { prefix: '/api/cmv' });
-    await registerSafe(alertRoutes, { prefix: '/api/alerts' });
-    await registerSafe(goalRoutes, { prefix: '/api/goals' });
-    await registerSafe(integrationRoutes, { prefix: '/api/integrations' });
-    await registerSafe(dashboardRoutes, { prefix: '/api/dashboard' });
-    await registerSafe(menuAnalysisRoutes, { prefix: '/api/menu-analysis' });
-    await registerSafe(purchaseRoutes, { prefix: '/api/purchases' });
-    await registerSafe(portioningRoutes, { prefix: '/api/portioning' });
-    await registerSafe(workTimesRoutes, { prefix: '/api/work-times' });
-    await registerSafe(inventoryRoutes, { prefix: '/api/inventory' });
-    await registerSafe(inventoryPublicRoutes, { prefix: '/api/public/inventory' });
-    await registerSafe(stockImportRoutes, { prefix: '/api/stock' });
-    await registerSafe(recipeAIRoutes, { prefix: '/api/recipes/ai' });
-    await registerSafe(stockRequestRoutes, { prefix: '/api/stock-requests' });
-    await registerSafe(userRoutes, { prefix: '/api/users' });
+    await registerSafe(authRoutes, { prefix: '/auth' });
+    await registerSafe(platformRoutes, { prefix: '/platform' });
+    await registerSafe(organizationRoutes, { prefix: '/organizations' });
+    await registerSafe(costCenterRoutes, { prefix: '/restaurants' });
+    await registerSafe(productRoutes, { prefix: '/products' });
+    await registerSafe(categoryRoutes, { prefix: '/categories' });
+    await registerSafe(supplierRoutes, { prefix: '/suppliers' });
+    await registerSafe(stockRoutes, { prefix: '/stock' });
+    await registerSafe(recipeRoutes, { prefix: '/recipes' });
+    await registerSafe(recipeCategoriesRoutes, { prefix: '/recipe-categories' });
+    await registerSafe(cmvRoutes, { prefix: '/cmv' });
+    await registerSafe(alertRoutes, { prefix: '/alerts' });
+    await registerSafe(goalRoutes, { prefix: '/goals' });
+    await registerSafe(integrationRoutes, { prefix: '/integrations' });
+    await registerSafe(dashboardRoutes, { prefix: '/dashboard' });
+    await registerSafe(menuAnalysisRoutes, { prefix: '/menu-analysis' });
+    await registerSafe(purchaseRoutes, { prefix: '/purchases' });
+    await registerSafe(portioningRoutes, { prefix: '/portioning' });
+    await registerSafe(workTimesRoutes, { prefix: '/work-times' });
+    await registerSafe(menuRoutes, { prefix: '/menu' });
+    await registerSafe(inventoryRoutes, { prefix: '/inventory' });
+    await registerSafe(inventoryPublicRoutes, { prefix: '/public/inventory' });
+    await registerSafe(stockImportRoutes, { prefix: '/stock' });
+    await registerSafe(recipeAIRoutes, { prefix: '/recipes/ai' });
+    await registerSafe(stockRequestRoutes, { prefix: '/stock-requests' });
+    await registerSafe(userRoutes, { prefix: '/users' });
 
     // PDV Routes
-    await registerSafe(pdvOrdersRoutes, { prefix: '/api/pdv/orders' });
-    await registerSafe(pdvPaymentsRoutes, { prefix: '/api/pdv' });
-    await registerSafe(cashSessionRoutes, { prefix: '/api/pdv/cash' });
-    await registerSafe(customersRoutes, { prefix: '/api/customers' });
-    await registerSafe(tablesRoutes, { prefix: '/api/tables' });
+    await registerSafe(pdvOrdersRoutes, { prefix: '/pdv/orders' });
+    await registerSafe(pdvPaymentsRoutes, { prefix: '/pdv' });
+    await registerSafe(cashSessionRoutes, { prefix: '/pdv/cash' });
+    await registerSafe(customersRoutes, { prefix: '/customers' });
+
+    await registerSafe(tablesRoutes, { prefix: '/tables' });
+
+    // Schedules Routes
+    await registerSafe(scheduleRoutes, { prefix: '/schedules' });
 
     // Purchase Lists
-    await registerSafe(purchaseListRoutes, { prefix: '/api/purchase-lists' });
-    await registerSafe(purchaseConfigRoutes, { prefix: '/api/purchase-config' });
+    await registerSafe(purchaseListRoutes, { prefix: '/purchase-lists' });
+    await registerSafe(purchaseConfigRoutes, { prefix: '/purchase-config' });
 
 
     // WebSocket for real-time updates
@@ -243,4 +286,6 @@ async function start() {
     }
 }
 
-start();
+if (require.main === module) {
+    start();
+}

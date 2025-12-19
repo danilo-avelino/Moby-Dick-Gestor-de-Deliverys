@@ -29,11 +29,9 @@ interface Integration {
 }
 
 export default function Integrations() {
-    const { operationMode, subRestaurants } = useSettingsStore();
+    const { operationMode } = useSettingsStore();
     const queryClient = useQueryClient();
-    const [selectedRestaurant, setSelectedRestaurant] = useState<string>(
-        subRestaurants.length > 0 ? subRestaurants[0].id : ''
-    );
+    const [selectedRestaurant, setSelectedRestaurant] = useState<string>('');
     const [showCredentialModal, setShowCredentialModal] = useState<Platform | null>(null);
     const [credentials, setCredentials] = useState<Record<string, string>>({});
 
@@ -50,6 +48,22 @@ export default function Integrations() {
             return res.data.data as { sales: Platform[]; logistics: Platform[] };
         },
     });
+
+    // Fetch restaurants (Cost Centers) - Source of Truth
+    const { data: restaurants = [] } = useQuery({
+        queryKey: ['restaurants'],
+        queryFn: async () => {
+            const res = await api.get('/api/restaurants');
+            return res.data.data as { id: string; name: string; }[];
+        },
+    });
+
+    // Set initial selected restaurant
+    useEffect(() => {
+        if (restaurants.length > 0 && !selectedRestaurant) {
+            setSelectedRestaurant(restaurants[0].id);
+        }
+    }, [restaurants, selectedRestaurant]);
 
     // Fetch integrations for selected restaurant
     const { data: integrations, refetch } = useQuery({
@@ -80,7 +94,7 @@ export default function Integrations() {
         },
     });
 
-    const selectedRestaurantData = subRestaurants.find(r => r.id === selectedRestaurant);
+    const selectedRestaurantData = restaurants.find(r => r.id === selectedRestaurant);
 
     const handleConnect = (platform: Platform) => {
         setCredentials({});
@@ -121,10 +135,10 @@ export default function Integrations() {
                 </button>
             </div>
 
-            {subRestaurants.length === 0 ? (
+            {restaurants.length === 0 ? (
                 <div className="glass-card text-center py-12">
                     <Building className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                    <p className="text-gray-400 mb-2">Nenhum restaurante criado</p>
+                    <p className="text-gray-400 mb-2">Nenhum restaurante encontrado</p>
                     <p className="text-sm text-gray-500">
                         Vá em <span className="text-primary-400">Configurações</span> para criar restaurantes
                     </p>
@@ -142,21 +156,13 @@ export default function Integrations() {
                             onChange={(e) => setSelectedRestaurant(e.target.value)}
                             className="input"
                         >
-                            {subRestaurants.map((restaurant) => (
+                            {restaurants.map((restaurant) => (
                                 <option key={restaurant.id} value={restaurant.id}>
-                                    {restaurant.name} ({restaurant.cuisineType})
+                                    {restaurant.name}
                                 </option>
                             ))}
                         </select>
-                        {selectedRestaurantData && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                                {selectedRestaurantData.shifts.map((shift) => (
-                                    <span key={shift.id} className="badge badge-purple">
-                                        {shift.name || 'Turno'}: {shift.startTime} - {shift.endTime}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
+
                     </div>
 
                     {/* Active Integrations for selected restaurant */}
@@ -336,12 +342,46 @@ function SingleModeIntegrations() {
     // Sync mutation
     const syncMutation = useMutation({
         mutationFn: async (id: string) => {
-            await api.post(`/api/integrations/${id}/sync`);
+            const res = await api.post(`/api/integrations/${id}/sync`);
+            return res.data;
         },
         onSuccess: () => {
             toast.success('Sincronização iniciada');
         },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error?.message || 'Erro ao sincronizar');
+        }
     });
+
+    // Test connection mutation
+    const testMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const res = await api.post(`/api/integrations/${id}/test`);
+            return res.data;
+        },
+        onSuccess: (data) => {
+            if (data.success) {
+                toast.success('Conexão testada com sucesso!');
+                queryClient.invalidateQueries({ queryKey: ['integrations'] });
+            } else {
+                toast.error('Teste de conexão falhou');
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error?.message || 'Erro ao testar conexão');
+        },
+    });
+
+    const handleReconnect = (integration: Integration) => {
+        // Find platform info
+        const platform = platformsData?.sales.find(p => p.id === integration.platform)
+            || platformsData?.logistics.find(p => p.id === integration.platform);
+
+        if (platform) {
+            setCredentials({}); // Reset or maybe fetch existing if API returned them (API hides secrets usually)
+            setShowCredentialModal(platform);
+        }
+    };
 
     const handleConnect = (platform: Platform) => {
         setCredentials({});
@@ -389,34 +429,59 @@ function SingleModeIntegrations() {
                     </h3>
                     <div className="space-y-3">
                         {integrations.map((integration) => (
-                            <div key={integration.id} className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                                <div className="flex items-center gap-3">
-                                    <span className="text-2xl">{integration.platformInfo?.logo || '🔌'}</span>
+                            <div key={integration.id} className="flex flex-col md:flex-row items-center justify-between p-4 rounded-xl bg-slate-800/80 border border-slate-700 gap-4 mb-3">
+                                <div className="flex items-center gap-4 w-full md:w-auto">
+                                    <div className="w-12 h-12 rounded-lg bg-black/20 flex items-center justify-center text-3xl">
+                                        {integration.platformInfo?.logo || '🔌'}
+                                    </div>
                                     <div>
-                                        <p className="font-medium text-white">{integration.name}</p>
-                                        <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-white text-lg">{integration.name}</h4>
+                                        <div className="flex items-center gap-2 mt-1">
                                             <StatusBadge status={integration.status} />
                                             {integration.lastSyncAt && (
-                                                <span className="text-xs text-gray-500">
-                                                    Último sync: {new Date(integration.lastSyncAt).toLocaleString('pt-BR')}
+                                                <span className="text-xs text-gray-400">
+                                                    {new Date(integration.lastSyncAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                                                 </span>
                                             )}
                                         </div>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2">
+
+                                <div className="flex items-center gap-2 w-full md:w-auto justify-end border-t md:border-t-0 border-white/5 pt-3 md:pt-0">
+                                    <button
+                                        onClick={() => testMutation.mutate(integration.id)}
+                                        disabled={testMutation.isPending}
+                                        className="btn bg-blue-600 hover:bg-blue-700 text-white border-none btn-sm h-9"
+                                    >
+                                        <RefreshCw className={`w-4 h-4 mr-2 ${testMutation.isPending ? 'animate-spin' : ''}`} />
+                                        Testar
+                                    </button>
+
+                                    <button
+                                        onClick={() => handleReconnect(integration)}
+                                        className="btn bg-slate-700 hover:bg-slate-600 text-white border-none btn-sm h-9"
+                                    >
+                                        <Settings className="w-4 h-4 mr-2" />
+                                        Configurar
+                                    </button>
+
+                                    <div className="w-px h-6 bg-white/10 mx-2 hidden md:block"></div>
+
                                     <button
                                         onClick={() => syncMutation.mutate(integration.id)}
-                                        disabled={integration.status !== 'ACTIVE'}
-                                        className="btn-ghost text-sm"
+                                        disabled={integration.status !== 'CONNECTED'}
+                                        className="btn btn-ghost btn-square btn-sm text-blue-400 hover:bg-blue-500/10"
+                                        title="Sincronizar"
                                     >
                                         <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                                     </button>
+
                                     <button
                                         onClick={() => disconnectMutation.mutate(integration.id)}
-                                        className="btn-ghost text-red-400 hover:bg-red-500/20 text-sm"
+                                        className="btn btn-ghost btn-square btn-sm text-red-400 hover:bg-red-500/10"
+                                        title="Desconectar"
                                     >
-                                        Desconectar
+                                        <X className="w-4 h-4" />
                                     </button>
                                 </div>
                             </div>
@@ -587,7 +652,7 @@ function RestaurantIntegrations({ restaurant, isExpanded, onToggle }: Restaurant
         });
     };
 
-    const activeCount = integrations?.filter(i => i.status === 'ACTIVE').length || 0;
+    const activeCount = integrations?.filter(i => i.status === 'CONNECTED').length || 0;
 
     return (
         <div className="glass rounded-2xl overflow-hidden">
@@ -603,7 +668,7 @@ function RestaurantIntegrations({ restaurant, isExpanded, onToggle }: Restaurant
                     <div className="text-left">
                         <h3 className="font-semibold text-white">{restaurant.name}</h3>
                         <p className="text-sm text-gray-400">
-                            {restaurant.cuisineType} • {restaurant.shifts.length} turno(s) •{' '}
+                            {restaurant.shifts.length} turno(s) •{' '}
                             {activeCount} integração(ões) ativas
                         </p>
                     </div>
@@ -729,7 +794,7 @@ interface IntegrationCardProps {
 }
 
 function IntegrationCard({ platform, integration, onConnect, compact }: IntegrationCardProps) {
-    const isActive = integration?.status === 'ACTIVE';
+    const isActive = integration?.status === 'CONNECTED';
     const isConnected = !!integration;
 
     return (
@@ -764,14 +829,17 @@ function IntegrationCard({ platform, integration, onConnect, compact }: Integrat
 // Status badge component
 function StatusBadge({ status, small }: { status: string; small?: boolean }) {
     const config: Record<string, { color: string; icon: any; label: string }> = {
+        CONNECTED: { color: 'green', icon: CheckCircle, label: 'Ativa' },
+        STOPPED: { color: 'gray', icon: AlertCircle, label: 'Parada' },
+        CONFIGURED: { color: 'yellow', icon: Settings, label: 'Configurada' },
+        INGESTING: { color: 'blue', icon: RefreshCw, label: 'Sincronizando' },
+        DEGRADED: { color: 'red', icon: AlertCircle, label: 'Erro' },
+        // Legacy fallbacks (optional, but good for safety)
         ACTIVE: { color: 'green', icon: CheckCircle, label: 'Ativa' },
         INACTIVE: { color: 'gray', icon: AlertCircle, label: 'Inativa' },
-        PENDING_AUTH: { color: 'yellow', icon: Settings, label: 'Pendente' },
-        SYNCING: { color: 'blue', icon: RefreshCw, label: 'Sincronizando' },
-        ERROR: { color: 'red', icon: AlertCircle, label: 'Erro' },
     };
 
-    const cfg = config[status] || config.INACTIVE;
+    const cfg = config[status] || config.STOPPED;
     const Icon = cfg.icon;
 
     return (

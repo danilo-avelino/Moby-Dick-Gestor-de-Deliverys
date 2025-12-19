@@ -2,20 +2,23 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../../lib/api';
+import { useAuthStore } from '../../stores/auth';
 import {
     ArrowLeft, Search, Plus, Minus, Trash2, User, MapPin,
     Truck, Package, Users, CreditCard, ShoppingCart, X
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import ModifierSelectionModal from './ModifierSelectionModal';
 
-interface Product {
+interface MenuItem {
     id: string;
     name: string;
-    sku?: string;
-    avgCost: number;
-    currentPrice?: number;
-    category?: { id: string; name: string };
+    description?: string;
+    price: number;
+    menuCategoryId: string;
     imageUrl?: string;
+    type: 'SIMPLE' | 'COMBO';
+    optionGroups: any[]; // Extended later
 }
 
 interface CartItem {
@@ -25,6 +28,7 @@ interface CartItem {
     quantity: number;
     unitPrice: number;
     notes?: string;
+    options?: any[]; // Selected options
 }
 
 interface Customer {
@@ -55,6 +59,8 @@ function formatCurrency(value: number): string {
 
 export default function NewOrder() {
     const navigate = useNavigate();
+    const { user } = useAuthStore();
+    const currentCostCenterId = user?.costCenter?.id; // Assuming populated
 
     // Order state
     const [orderType, setOrderType] = useState<OrderType>('RETIRADA');
@@ -70,25 +76,40 @@ export default function NewOrder() {
     const [selectedCategory, setSelectedCategory] = useState<string>('');
     const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-    // Fetch products
-    const { data: productsData } = useQuery({
-        queryKey: ['products-pdv'],
-        queryFn: async () => {
-            const res = await api.get('/api/products?limit=500&isActive=true');
-            return res.data.data?.data || res.data.data || [];
-        },
-    });
-    const products: Product[] = productsData || [];
+    // Modifier Modal
+    const [showModifierModal, setShowModifierModal] = useState(false);
+    const [selectedItemForModifiers, setSelectedItemForModifiers] = useState<MenuItem | null>(null);
 
-    // Fetch categories
-    const { data: categoriesData } = useQuery({
-        queryKey: ['categories-pdv'],
+    // Fetch Menu (Categories included)
+    const { data: menuData } = useQuery({
+        queryKey: ['menu-pdv', currentCostCenterId, orderType],
         queryFn: async () => {
-            const res = await api.get('/api/categories');
+            if (!currentCostCenterId) return [];
+            const res = await api.get('/api/menu/pdv', {
+                params: {
+                    costCenterId: currentCostCenterId,
+                    channel: orderType
+                }
+            });
             return res.data.data || [];
         },
+        enabled: !!currentCostCenterId
     });
-    const categories = categoriesData || [];
+
+    // Flatten items for search/list, but keep categories structure for filters if needed
+    // The API returns [{ ...category, items: [] }]
+    const categories = menuData || [];
+
+    // Flatten items logic handled in filteredProducts or separate memo
+    const products = useMemo(() => {
+        const allItems: MenuItem[] = [];
+        categories.forEach((cat: any) => {
+            if (cat.items) {
+                allItems.push(...cat.items.map((item: any) => ({ ...item, menuCategoryId: cat.id })));
+            }
+        });
+        return allItems;
+    }, [categories]);
 
     // Fetch tables (for SALAO)
     const { data: tablesData } = useQuery({
@@ -105,9 +126,10 @@ export default function NewOrder() {
     const filteredProducts = useMemo(() => {
         return products.filter(p => {
             const matchesSearch = !productSearch ||
-                p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-                p.sku?.toLowerCase().includes(productSearch.toLowerCase());
-            const matchesCategory = !selectedCategory || p.category?.id === selectedCategory;
+                p.name.toLowerCase().includes(productSearch.toLowerCase());
+            // p.sku check removed as MenuItem doesn't have SKU yet (can add if needed)
+
+            const matchesCategory = !selectedCategory || p.menuCategoryId === selectedCategory;
             return matchesSearch && matchesCategory;
         });
     }, [products, productSearch, selectedCategory]);
@@ -117,11 +139,20 @@ export default function NewOrder() {
     const total = subtotal + (orderType === 'DELIVERY' ? deliveryFee : 0);
 
     // Add to cart
-    const addToCart = (product: Product) => {
-        const existing = cart.find(item => item.productId === product.id);
+    const addToCart = (product: MenuItem) => {
+        // Check for modifiers
+        // Check for modifiers
+        if (product.optionGroups && product.optionGroups.length > 0) {
+            setSelectedItemForModifiers(product);
+            setShowModifierModal(true);
+            return;
+        }
+
+        const existing = cart.find(item => item.productId === product.id && (!item.options || item.options.length === 0));
+
         if (existing) {
             setCart(cart.map(item =>
-                item.productId === product.id
+                item.productId === product.id && (!item.options || item.options.length === 0)
                     ? { ...item, quantity: item.quantity + 1 }
                     : item
             ));
@@ -129,9 +160,9 @@ export default function NewOrder() {
             setCart([...cart, {
                 productId: product.id,
                 productName: product.name,
-                productSku: product.sku,
+                // productSku: product.sku, // removed
                 quantity: 1,
-                unitPrice: product.currentPrice || product.avgCost * 1.5,
+                unitPrice: product.price,
             }]);
         }
     };
@@ -304,7 +335,7 @@ export default function NewOrder() {
                                 </div>
                                 <h3 className="text-sm font-medium text-white truncate">{product.name}</h3>
                                 <p className="text-xs text-primary-400">
-                                    {formatCurrency(product.currentPrice || product.avgCost * 1.5)}
+                                    {formatCurrency(product.price)}
                                 </p>
                             </button>
                         ))}
@@ -469,6 +500,32 @@ export default function NewOrder() {
                     onClose={() => setShowPaymentModal(false)}
                     onConfirm={(payments) => createOrderMutation.mutate(payments)}
                     isLoading={createOrderMutation.isPending}
+                />
+            )}
+
+            {showModifierModal && selectedItemForModifiers && (
+                <ModifierSelectionModal
+                    item={selectedItemForModifiers}
+                    onClose={() => {
+                        setShowModifierModal(false);
+                        setSelectedItemForModifiers(null);
+                    }}
+                    onConfirm={(item, options) => {
+                        // Add to cart with options
+                        const totalPrice = item.price + options.reduce((acc, opt) => acc + opt.price, 0);
+
+                        setCart([...cart, {
+                            productId: item.id,
+                            productName: item.name,
+                            quantity: 1,
+                            unitPrice: totalPrice,
+                            options: options,
+                            notes: options.map(o => o.name).join(', ') // Simple display of options
+                        }]);
+
+                        setShowModifierModal(false);
+                        setSelectedItemForModifiers(null);
+                    }}
                 />
             )}
         </div>

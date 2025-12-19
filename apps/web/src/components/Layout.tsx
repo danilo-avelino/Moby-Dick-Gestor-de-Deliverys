@@ -4,7 +4,7 @@ import {
     LayoutDashboard, Package, Warehouse, TrendingUp, PieChart, BookOpen,
     Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
     MessageSquare, ClipboardList, ClipboardCheck, Apple, Users, ShoppingBag, CreditCard, History,
-    Building, RefreshCw
+    Building, RefreshCw, Calendar
 } from 'lucide-react';
 import { useState, Fragment } from 'react';
 import { cn, getInitials } from '../lib/utils';
@@ -24,6 +24,8 @@ const navigation = [
     { name: 'Fichas Técnicas', href: '/recipes', icon: BookOpen, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'CMV', href: '/cmv', icon: TrendingUp, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Análise Cardápio', href: '/menu-analysis', icon: PieChart, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Cardápio', href: '/menu', icon: Menu, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Escalas', href: '/schedules', icon: Calendar, roles: [UserRole.DIRETOR, UserRole.MANAGER, UserRole.SUPER_ADMIN, UserRole.ADMIN] },
     { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Metas', href: '/goals', icon: Target, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
@@ -212,48 +214,7 @@ export default function Layout() {
                                 <span className="text-sm font-medium text-white">{organization.name}</span>
                             </div>
                         )}
-                        {restaurants && restaurants.length > 1 && (
-                            <HeadlessMenu as="div" className="relative inline-block text-left">
-                                <HeadlessMenu.Button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-gray-800 rounded-lg hover:bg-gray-700 focus:outline-none transition-colors border border-white/10">
-                                    <Building className="w-4 h-4 text-gray-400" />
-                                    <span>{user?.restaurant?.name || 'Selecione...'}</span>
-                                    <RefreshCw className="w-3 h-3 ml-2 text-gray-500" />
-                                </HeadlessMenu.Button>
-                                <Transition
-                                    as={Fragment}
-                                    enter="transition ease-out duration-100"
-                                    enterFrom="transform opacity-0 scale-95"
-                                    enterTo="transform opacity-100 scale-100"
-                                    leave="transition ease-in duration-75"
-                                    leaveFrom="transform opacity-100 scale-100"
-                                    leaveTo="transform opacity-0 scale-95"
-                                >
-                                    <HeadlessMenu.Items className="absolute left-0 mt-2 w-56 origin-top-left bg-gray-800 divide-y divide-gray-700 rounded-lg shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
-                                        <div className="px-1 py-1">
-                                            {restaurants.map((r: any) => (
-                                                <HeadlessMenu.Item key={r.id}>
-                                                    {({ active }) => (
-                                                        <button
-                                                            onClick={() => switchMutation.mutate(r.id)}
-                                                            className={cn(
-                                                                active ? 'bg-primary-600 text-white' : 'text-gray-200',
-                                                                'group flex w-full items-center rounded-md px-2 py-2 text-sm'
-                                                            )}
-                                                            disabled={r.id === user?.restaurantId}
-                                                        >
-                                                            {r.name}
-                                                            {r.id === user?.restaurantId && (
-                                                                <span className="ml-auto text-xs opacity-50">(Atual)</span>
-                                                            )}
-                                                        </button>
-                                                    )}
-                                                </HeadlessMenu.Item>
-                                            ))}
-                                        </div>
-                                    </HeadlessMenu.Items>
-                                </Transition>
-                            </HeadlessMenu>
-                        )}
+
                     </div>
 
                     <div className="flex items-center gap-4">

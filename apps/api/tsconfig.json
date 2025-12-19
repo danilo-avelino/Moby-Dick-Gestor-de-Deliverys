@@ -5,7 +5,16 @@
         "rootDir": "./src",
         "module": "CommonJS",
         "moduleResolution": "node",
-        "esModuleInterop": true
+        "esModuleInterop": true,
+        "baseUrl": ".",
+        "paths": {
+            "database": [
+                "../../packages/database/src/index.ts"
+            ],
+            "types": [
+                "../../packages/types/src/index.ts"
+            ]
+        }
     },
     "include": [
         "src/**/*"

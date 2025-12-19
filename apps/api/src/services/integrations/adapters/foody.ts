@@ -236,6 +236,26 @@ export class FoodyAdapter extends LogisticsIntegrationAdapter {
         return statusMap[status] || 'pending';
     }
 
+    async fetchOrdersBatch(startDate: string, endDate: string): Promise<any[]> {
+        // This endpoint uses a different base URL
+        const url = `https://app.foodydelivery.com/rest/1.2/orders?startDate=${startDate}&endDate=${endDate}`;
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${this.credentials.apiToken}`,
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`Foody App API error: ${response.status} - ${error}`);
+        }
+
+        return response.json();
+    }
+
     private mapEvent(event: { status: string; timestamp: string; description?: string }): DeliveryEvent {
         return {
             status: this.mapFoodyStatus(event.status),
