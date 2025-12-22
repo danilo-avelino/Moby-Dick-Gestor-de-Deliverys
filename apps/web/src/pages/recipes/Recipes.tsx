@@ -10,6 +10,10 @@ import {
 import toast from 'react-hot-toast';
 import { CreateCategoryModal } from './components/CreateCategoryModal';
 import { NewRecipeModal } from './components/NewRecipeModal';
+import { PortioningProductModal } from './components/PortioningProductModal';
+import { PortioningProcessListModal } from './components/PortioningProcessListModal';
+import { PortioningBatchModal } from './components/PortioningBatchModal';
+import { PortioningDashboard } from './components/PortioningDashboard';
 import { useAuthStore } from '../../stores/auth';
 
 export default function Recipes() {
@@ -44,6 +48,10 @@ export default function Recipes() {
     // Modals
     const [isCreateCategoryOpen, setIsCreateCategoryOpen] = useState(false);
     const [isNewRecipeOpen, setIsNewRecipeOpen] = useState(false);
+    const [isPortioningProductModalOpen, setIsPortioningProductModalOpen] = useState(false);
+    const [isProcessListOpen, setIsProcessListOpen] = useState(false);
+    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+    const [editingProcess, setEditingProcess] = useState<any>(null);
 
     // Fetch Categories
     const { data: categories = [], isLoading: isLoadingCategories } = useQuery({
@@ -92,7 +100,9 @@ export default function Recipes() {
         }
     }
 
-    // Render Portioning Tab (Placeholder for now)
+
+
+    // Render Portioning Tab
     if (activeTab === 'portioning') {
         return (
             <div className="space-y-6 animate-fade-in">
@@ -103,19 +113,82 @@ export default function Recipes() {
                         </button>
                         <h1 className="text-2xl font-bold text-white">Porcionamento</h1>
                     </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => setIsBatchModalOpen(true)}
+                            className="bg-primary-500 hover:bg-primary-600 text-white font-medium py-2 px-4 rounded-lg flex items-center transition-colors shadow-lg shadow-primary-500/20"
+                        >
+                            <Scale className="w-5 h-5 sm:mr-2" />
+                            <span className="hidden sm:inline">Registrar Lote</span>
+                        </button>
+                        <button
+                            onClick={() => setIsProcessListOpen(true)}
+                            className="bg-white/5 hover:bg-white/10 text-white font-medium py-2 px-4 rounded-lg flex items-center transition-colors border border-white/10"
+                        >
+                            <Edit className="w-4 h-4 sm:mr-2" />
+                            <span className="hidden sm:inline">Editar processos</span>
+                        </button>
+                        <button
+                            onClick={() => {
+                                setEditingProcess(null);
+                                setIsPortioningProductModalOpen(true);
+                            }}
+                            className="btn-secondary"
+                        >
+                            <FolderPlus className="w-5 h-5 sm:mr-2" />
+                            <span className="hidden sm:inline">Processos</span>
+                        </button>
+                    </div>
                 </div>
-                <div className="glass-card p-12 text-center">
-                    <Scale className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                    <h3 className="text-xl font-medium text-white mb-2">Controle de Porcionamento</h3>
-                    <p className="text-gray-400 max-w-md mx-auto">
-                        Registre a produção de lotes de porcionamento para atualizar o custo médio dos insumos porcionados.
-                    </p>
-                    <button className="btn-primary mt-6">
-                        <Plus className="w-5 h-5 mr-2" /> Registrar Lote
-                    </button>
-                    <p className="mt-4 text-xs text-yellow-500">Funcionalidade em desenvolvimento</p>
+                <div className="flex flex-col gap-6">
+                    {/* Dashboard Section */}
+                    <PortioningDashboard />
+
+                    {/* Quick Actions (Floating or Sticky? Or just in the header?) 
+                        The header already has buttons. "Registrar Lote" was requested as a "Main Action".
+                        I'll add a prominent section IF the previous empty state is gone.
+                    */}
                 </div>
-            </div>
+
+                {
+                    isPortioningProductModalOpen && (
+                        <PortioningProductModal
+                            initialData={editingProcess}
+                            onClose={() => {
+                                setIsPortioningProductModalOpen(false);
+                                setEditingProcess(null);
+                            }}
+                        />
+                    )
+                }
+
+                {
+                    isProcessListOpen && (
+                        <PortioningProcessListModal
+                            onClose={() => setIsProcessListOpen(false)}
+                            onEdit={(process) => {
+                                setEditingProcess(process);
+                                setIsProcessListOpen(false);
+                                setIsPortioningProductModalOpen(true);
+                            }}
+                        />
+                    )
+                }
+
+                {
+                    isBatchModalOpen && (
+                        <PortioningBatchModal
+                            isOpen={isBatchModalOpen}
+                            onClose={() => setIsBatchModalOpen(false)}
+                            onAddNewProcess={() => {
+                                setIsBatchModalOpen(false);
+                                setEditingProcess(null);
+                                setIsPortioningProductModalOpen(true);
+                            }}
+                        />
+                    )
+                }
+            </div >
         );
     }
 

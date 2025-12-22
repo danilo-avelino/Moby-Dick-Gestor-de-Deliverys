@@ -27,10 +27,15 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
         const body = startInventorySchema.parse(request.body);
         const { costCenterId, organizationId, id: userId } = request.user!;
 
+        if (!costCenterId) {
+            throw errors.badRequest('É necessário selecionar um Centro de Custo para iniciar o inventário.');
+        }
+
         try {
-            const session = await InventoryService.startInventory(costCenterId!, organizationId!, userId, body.notes);
+            const session = await InventoryService.startInventory(costCenterId, organizationId!, userId, body.notes);
             return reply.send({ success: true, data: session });
         } catch (error: any) {
+            request.log.error(error);
             throw errors.conflict(error.message);
         }
     });

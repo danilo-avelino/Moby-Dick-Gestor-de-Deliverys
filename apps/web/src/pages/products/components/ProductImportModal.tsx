@@ -4,7 +4,7 @@ import { Upload, X, FileSpreadsheet, CheckCircle, AlertCircle, Loader2 } from 'l
 import { api } from '../../../lib/api';
 import toast from 'react-hot-toast';
 
-interface StockImportModalProps {
+interface ProductImportModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
@@ -17,46 +17,51 @@ interface ImportError {
 }
 
 interface ImportResult {
-    totalRows: number;
-    importedRows: number;
-    createdProducts: number;
-    updatedProducts: number;
-    createdCategories: number;
-    errors: ImportError[];
+    total: number;
+    created: number;
+    updated: number;
+    errors: string[];
     message: string;
 }
 
-export default function StockImportModal({ isOpen, onClose }: StockImportModalProps) {
+export default function ProductImportModal({ isOpen, onClose }: ProductImportModalProps) {
     const queryClient = useQueryClient();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [sobrescreverEstoque, setSobrescreverEstoque] = useState(false);
     const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
     const importMutation = useMutation({
         mutationFn: async (file: File) => {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('sobrescreverEstoqueAtual', sobrescreverEstoque.toString());
 
-            const response = await api.post('/api/stock/import', formData);
+            const response = await api.post('/api/products/import', formData);
             return response.data;
         },
         onSuccess: (data) => {
             if (data.success) {
                 setImportResult(data.data);
-                toast.success(data.data.message);
-                queryClient.invalidateQueries({ queryKey: ['stock'] });
-                queryClient.invalidateQueries({ queryKey: ['stock-summary'] });
+                toast.success('Importação concluída');
                 queryClient.invalidateQueries({ queryKey: ['products'] });
                 queryClient.invalidateQueries({ queryKey: ['categories'] });
-                queryClient.invalidateQueries({ queryKey: ['product-details'] });
+                queryClient.invalidateQueries({ queryKey: ['suppliers'] });
             } else {
                 toast.error(data.error?.message || 'Erro na importação');
             }
         },
         onError: (error: any) => {
-            toast.error(error.response?.data?.error?.message || 'Erro ao importar arquivo');
+            console.error('Import error:', error);
+            // Try different error formats: Custom AppError vs Standard Fastify Error
+            const serverMsg = error.response?.data?.error?.message || error.response?.data?.message;
+            const msg = serverMsg || error.message || 'Erro ao importar arquivo';
+            const status = error.response?.status;
+
+            // Show full details for debugging 500s
+            if (status === 500) {
+                toast.error(`Erro 500: ${JSON.stringify(error.response?.data || error.message)}`);
+            } else {
+                toast.error(status ? `Erro ${status}: ${msg}` : msg);
+            }
         },
     });
 
@@ -94,7 +99,6 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
     const handleClose = () => {
         setSelectedFile(null);
         setImportResult(null);
-        setSobrescreverEstoque(false);
         onClose();
     };
 
@@ -111,8 +115,8 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
                             <FileSpreadsheet className="w-6 h-6 text-primary-400" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-semibold text-white">Importar Estoque</h2>
-                            <p className="text-sm text-gray-400">Importe seu estoque a partir de um arquivo Excel</p>
+                            <h2 className="text-xl font-semibold text-white">Importar Produtos</h2>
+                            <p className="text-sm text-gray-400">Importe produtos a partir de um arquivo Excel de backup ou editado.</p>
                         </div>
                     </div>
                     <button
@@ -174,32 +178,14 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
                                 )}
                             </div>
 
-                            {/* Options */}
-                            <div className="space-y-3">
-                                <label className="flex items-center gap-3 p-4 rounded-lg bg-white/5 border border-white/10 cursor-pointer hover:bg-white/10 transition-colors">
-                                    <input
-                                        type="checkbox"
-                                        checked={sobrescreverEstoque}
-                                        onChange={(e) => setSobrescreverEstoque(e.target.checked)}
-                                        className="w-4 h-4 rounded border-gray-600 text-primary-500 focus:ring-primary-500"
-                                    />
-                                    <div>
-                                        <p className="text-white font-medium">Sobrescrever estoque completo</p>
-                                        <p className="text-gray-400 text-sm">
-                                            Produtos que não estiverem na planilha terão o estoque zerado
-                                        </p>
-                                    </div>
-                                </label>
-                            </div>
-
                             {/* Template Info */}
                             <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
                                 <h4 className="text-blue-400 font-medium mb-2">Formato esperado da planilha:</h4>
                                 <ul className="text-sm text-gray-300 space-y-1">
-                                    <li>• Aba com nome: <code className="text-primary-400">"Posição de estoque"</code></li>
-                                    <li>• Colunas: Data, Ingrediente, Grupo ingrediente, Estoque Atual, Qtde Conferida, Diferença, Valor unitário, Total</li>
-                                    <li>• Estoque Atual no formato: <code className="text-primary-400">"2,3600KG"</code> (quantidade + unidade)</li>
-                                    <li>• Data no formato: <code className="text-primary-400">"dd/MM/yyyy"</code></li>
+                                    <li>• As colunas devem corresponder às do arquivo de <strong>Exportação</strong>.</li>
+                                    <li>• Coluna obrigatória: <code className="text-primary-400">"Nome"</code></li>
+                                    <li>• Chave de correspondência: <code className="text-primary-400">"SKU"</code> (se existir) ou <code className="text-primary-400">"Nome"</code>.</li>
+                                    <li>• Produtos correspondentes serão <strong>atualizados</strong>. Produtos não encontrados serão <strong>criados</strong>.</li>
                                 </ul>
                             </div>
                         </>
@@ -224,22 +210,18 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
                                     </h3>
                                 </div>
 
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                     <div className="p-3 rounded-lg bg-white/5">
-                                        <p className="text-2xl font-bold text-white">{importResult.importedRows}</p>
-                                        <p className="text-sm text-gray-400">Linhas importadas</p>
+                                        <p className="text-2xl font-bold text-white">{importResult.total}</p>
+                                        <p className="text-sm text-gray-400">Total processado</p>
                                     </div>
                                     <div className="p-3 rounded-lg bg-white/5">
-                                        <p className="text-2xl font-bold text-green-400">{importResult.createdProducts}</p>
-                                        <p className="text-sm text-gray-400">Produtos criados</p>
+                                        <p className="text-2xl font-bold text-green-400">{importResult.created}</p>
+                                        <p className="text-sm text-gray-400">Criados</p>
                                     </div>
                                     <div className="p-3 rounded-lg bg-white/5">
-                                        <p className="text-2xl font-bold text-blue-400">{importResult.updatedProducts}</p>
-                                        <p className="text-sm text-gray-400">Produtos atualizados</p>
-                                    </div>
-                                    <div className="p-3 rounded-lg bg-white/5">
-                                        <p className="text-2xl font-bold text-purple-400">{importResult.createdCategories}</p>
-                                        <p className="text-sm text-gray-400">Categorias criadas</p>
+                                        <p className="text-2xl font-bold text-blue-400">{importResult.updated}</p>
+                                        <p className="text-sm text-gray-400">Atualizados</p>
                                     </div>
                                 </div>
                             </div>
@@ -253,11 +235,7 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
                                     <div className="max-h-40 overflow-y-auto space-y-2">
                                         {importResult.errors.map((error, index) => (
                                             <div key={index} className="text-sm p-2 rounded bg-white/5">
-                                                <span className="text-gray-400">Linha {error.row}:</span>{' '}
-                                                <span className="text-red-400">{error.message}</span>
-                                                {error.value && (
-                                                    <span className="text-gray-500"> ({error.field}: "{error.value}")</span>
-                                                )}
+                                                <span className="text-red-400">{error}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -289,7 +267,7 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
                             ) : (
                                 <>
                                     <Upload className="w-4 h-4" />
-                                    Importar Estoque
+                                    Importar
                                 </>
                             )}
                         </button>

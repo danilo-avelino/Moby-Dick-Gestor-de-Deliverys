@@ -8,6 +8,7 @@ import cookie from '@fastify/cookie';
 // import swagger from '@fastify/swagger';
 // import swaggerUI from '@fastify/swagger-ui';
 import websocket from '@fastify/websocket';
+import multipart from '@fastify/multipart';
 
 import { prisma } from 'database';
 import { authRoutes } from './routes/auth';
@@ -20,7 +21,8 @@ import { recipeRoutes } from './routes/recipes';
 import { recipeCategoriesRoutes } from './routes/recipe-categories';
 import { cmvRoutes } from './routes/cmv';
 import { alertRoutes } from './routes/alerts';
-import { goalRoutes } from './routes/goals';
+import { indicatorRoutes } from './routes/indicators';
+// import { goalRoutes } from './routes/goals'; // Deprecated
 import { integrationRoutes } from './routes/integrations';
 import { dashboardRoutes } from './routes/dashboard';
 import { menuAnalysisRoutes } from './routes/menu-analysis';
@@ -61,6 +63,24 @@ export async function buildServer() {
             } : undefined,
         },
     });
+
+    // Register Multipart EARLY to avoid conflicts
+    try {
+        // Debugging
+        // @ts-ignore
+        console.log('Parsers keys (pre-remove):', fastify.contentTypeParser?.customParsers?.keys ? Array.from(fastify.contentTypeParser.customParsers.keys()) : 'unknown');
+        fastify.removeAllContentTypeParsers();
+        // @ts-ignore
+        console.log('Parsers keys (post-remove):', fastify.contentTypeParser?.customParsers?.keys ? Array.from(fastify.contentTypeParser.customParsers.keys()) : 'unknown');
+
+        await fastify.register(require('@fastify/multipart'), {
+            limits: {
+                fileSize: 10 * 1024 * 1024, // 10MB max
+            },
+        });
+    } catch (e) {
+        console.error('Multipart registration failed:', e);
+    }
 
     // Handle pre-parsed bodies (e.g. from Firebase Functions)
     // Handle pre-parsed bodies (e.g. from Firebase Functions)
@@ -143,6 +163,8 @@ export async function buildServer() {
         secret: process.env.JWT_SECRET || 'super-secret-key-change-in-production',
     });
 
+
+
     // WebSocket
     await fastify.register(websocket);
 
@@ -221,7 +243,8 @@ export async function buildServer() {
     await registerSafe(recipeCategoriesRoutes, { prefix: '/recipe-categories' });
     await registerSafe(cmvRoutes, { prefix: '/cmv' });
     await registerSafe(alertRoutes, { prefix: '/alerts' });
-    await registerSafe(goalRoutes, { prefix: '/goals' });
+    // await registerSafe(goalRoutes, { prefix: '/goals' });
+    await registerSafe(indicatorRoutes, { prefix: '/indicators' });
     await registerSafe(integrationRoutes, { prefix: '/integrations' });
     await registerSafe(dashboardRoutes, { prefix: '/dashboard' });
     await registerSafe(menuAnalysisRoutes, { prefix: '/menu-analysis' });

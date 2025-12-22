@@ -8,8 +8,6 @@ interface MenuItem {
     name: string;
     description?: string;
     price: number;
-    description?: string;
-    price: number;
     imageUrl?: string;
     isActive: boolean;
     displayInPdv: boolean;

@@ -5,21 +5,22 @@ import { formatCurrency, formatNumber } from '../../lib/utils';
 import {
     Plus, Search, Package, AlertTriangle, Edit, Trash2, DollarSign,
     Calendar, Tag, Filter, TrendingDown, Archive, ShoppingCart, MoreVertical,
-    Settings, Users, Layers, X
+    Settings, Users, Layers, X, Download, FileSpreadsheet
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
-// ... imports
 import ProductDetailsModal from '../stock/components/ProductDetailsModal';
 import StockImportModal from '../stock/components/StockImportModal';
+import ProductImportModal from './components/ProductImportModal';
 
 export default function Products() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [showCategoriesModal, setShowCategoriesModal] = useState(false);
     const [showSuppliersModal, setShowSuppliersModal] = useState(false);
-    const [showImportModal, setShowImportModal] = useState(false);
+    const [showProductImportModal, setShowProductImportModal] = useState(false);
+    const [showStockImportModal, setShowStockImportModal] = useState(false);
     const [search, setSearch] = useState('');
     const [categoryId, setCategoryId] = useState('all');
     const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -61,6 +62,23 @@ export default function Products() {
         setDismissedCalibrationWarning(true);
     };
 
+    const handleExport = async () => {
+        try {
+            const response = await api.get('/api/products/export', {
+                responseType: 'blob',
+            });
+            const url = window.URL.createObjectURL(new Blob([response.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `produtos-${new Date().toISOString().split('T')[0]}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            toast.error('Erro ao exportar produtos');
+        }
+    };
+
     // Queries
     const { data: productsData, isLoading: isLoadingProducts, refetch: refetchProducts, error: productsError, isError: isProductsError } = useQuery({
         queryKey: ['products', search, categoryId],
@@ -70,16 +88,16 @@ export default function Products() {
                 categoryId: categoryId !== 'all' ? categoryId : undefined,
             }
         }).then(r => r.data),
-        staleTime: 10000, // 10 seconds - data becomes stale quickly
-        refetchOnWindowFocus: true, // Refetch when user comes back to window
-        refetchOnMount: 'always', // Always refetch when component mounts
-        retry: 1, // Don't retry too many times for 403s
+        staleTime: 10000,
+        refetchOnWindowFocus: true,
+        refetchOnMount: 'always',
+        retry: 1,
     });
 
     const { data: categories } = useQuery({
         queryKey: ['categories'],
         queryFn: () => api.get('/api/categories').then(r => r.data.data),
-        staleTime: 60000, // 1 minute - categories change less often
+        staleTime: 60000,
     });
 
     const { data: suppliers } = useQuery({
@@ -135,12 +153,10 @@ export default function Products() {
     // Filter products based on URL parameter
     const filteredProducts = products.filter((product: any) => {
         if (filterParam === 'lowStock') {
-            // Low stock: currentStock < 20% of reorderPoint, and reorderPoint must be > 0
             const reorderPoint = product.reorderPoint || 0;
             return reorderPoint > 0 && product.currentStock < (reorderPoint * 0.2);
         }
         if (filterParam === 'expiring') {
-            // Filter perishable products (for now showing all perishable, can be enhanced with actual expiration dates)
             return product.isPerishable;
         }
         return true;
@@ -149,8 +165,6 @@ export default function Products() {
     const clearFilter = () => {
         setSearchParams({});
     };
-
-
 
     return (
         <div className="space-y-6 animate-fade-in">
@@ -162,11 +176,26 @@ export default function Products() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                     <button
-                        onClick={() => setShowImportModal(true)}
+                        onClick={handleExport}
+                        className="btn-ghost text-sm"
+                    >
+                        <Download className="w-4 h-4 mr-2" />
+                        Exportar
+                    </button>
+                    <button
+                        onClick={() => setShowProductImportModal(true)}
                         className="btn-ghost text-sm"
                     >
                         <Archive className="w-4 h-4 mr-2" />
                         Importar
+                    </button>
+                    <button
+                        onClick={() => setShowStockImportModal(true)}
+                        className="btn-ghost text-sm"
+                        title="Importar contagem de estoque"
+                    >
+                        <FileSpreadsheet className="w-4 h-4 mr-2" />
+                        Estoque
                     </button>
                     <button
                         onClick={() => setShowCategoriesModal(true)}
@@ -541,10 +570,16 @@ export default function Products() {
                 productId={selectedProductId}
             />
 
+            {/* Product Import Modal */}
+            <ProductImportModal
+                isOpen={showProductImportModal}
+                onClose={() => setShowProductImportModal(false)}
+            />
+
             {/* Stock Import Modal */}
             <StockImportModal
-                isOpen={showImportModal}
-                onClose={() => setShowImportModal(false)}
+                isOpen={showStockImportModal}
+                onClose={() => setShowStockImportModal(false)}
             />
         </div>
     );

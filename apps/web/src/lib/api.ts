@@ -35,7 +35,7 @@ api.interceptors.response.use(
         const originalRequest = error.config;
 
         // If 401 and not already retrying
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/login')) {
             originalRequest._retry = true;
 
             try {

@@ -35,6 +35,10 @@ declare module '@fastify/jwt' {
             scope: 'ORG' | 'RESTAURANTS';
             permissions?: {
                 allowedCostCenterIds: string[] | 'ALL';
+                indicators: {
+                    view: boolean;
+                    configure: boolean;
+                };
             };
             impersonatedBy?: string;
         };
@@ -99,7 +103,17 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
             organizationId: activeOrganizationId,
             scope: user.scope as 'ORG' | 'RESTAURANTS',
             permissions: {
-                allowedCostCenterIds
+                allowedCostCenterIds,
+                indicators: {
+                    // Everyone can potentially view if they are "Interessados" (Staff), 
+                    // but Managers/Directors/Admins have implicit view access to everything or at least the module.
+                    // For now, we set the capability to TRUE for all active users, 
+                    // and actual data visibility is filtered by IndicatorAccess table.
+                    view: true,
+
+                    // Only Manager and Director (and above) can configure
+                    configure: ['SUPER_ADMIN', 'ADMIN', 'DIRETOR', 'MANAGER'].includes(user.role)
+                }
             },
             impersonatedBy: decoded.impersonatedBy
         };

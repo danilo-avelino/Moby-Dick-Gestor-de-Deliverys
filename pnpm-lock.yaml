@@ -98,6 +98,9 @@ importers:
       types:
         specifier: workspace:*
         version: link:../../packages/types
+      uuid:
+        specifier: ^13.0.0
+        version: 13.0.0
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
@@ -163,13 +166,13 @@ importers:
         specifier: ^2.4.1
         version: 2.6.0(react-dom@18.3.1)(react@18.3.1)
       react-number-format:
-        specifier: ^5.4.4
+        specifier: ^5.3.1
         version: 5.4.4(react-dom@18.3.1)(react@18.3.1)
       react-router-dom:
         specifier: ^6.21.0
         version: 6.30.2(react-dom@18.3.1)(react@18.3.1)
       react-select:
-        specifier: ^5.10.2
+        specifier: ^5.8.0
         version: 5.10.2(@types/react@18.3.27)(react-dom@18.3.1)(react@18.3.1)
       recharts:
         specifier: ^2.10.3
@@ -2167,7 +2170,7 @@ packages:
     resolution: {integrity: sha512-HVyk8nj2m+jcFRNazzqyVKiZezyhDKrGUA3jlEcg/nZ6Ms+qHwocba1Y/AaVaznJTAM9xpdFSh+ptbNrhOGvZA==}
     deprecated: This is a stub types definition. uuid provides its own type definitions, so you do not need this installed.
     dependencies:
-      uuid: 11.1.0
+      uuid: 13.0.0
     dev: true
 
   /@ungap/structured-clone@1.3.0:
@@ -2949,6 +2952,7 @@ packages:
 
   /emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
+    requiresBuild: true
 
   /emoji-regex@9.2.2:
     resolution: {integrity: sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg==}
@@ -3976,6 +3980,7 @@ packages:
   /is-fullwidth-code-point@3.0.0:
     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
     engines: {node: '>=8'}
+    requiresBuild: true
 
   /is-glob@4.0.3:
     resolution: {integrity: sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg==}
@@ -5980,6 +5985,11 @@ packages:
 
   /uuid@11.1.0:
     resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
+    hasBin: true
+    dev: false
+
+  /uuid@13.0.0:
+    resolution: {integrity: sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==}
     hasBin: true
 
   /uuid@8.3.2:

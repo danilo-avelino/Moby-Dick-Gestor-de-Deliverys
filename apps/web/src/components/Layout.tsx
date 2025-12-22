@@ -28,7 +28,7 @@ const navigation = [
     { name: 'Escalas', href: '/schedules', icon: Calendar, roles: [UserRole.DIRETOR, UserRole.MANAGER, UserRole.SUPER_ADMIN, UserRole.ADMIN] },
     { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
-    { name: 'Metas', href: '/goals', icon: Target, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Indicadores', href: '/indicators', icon: Target, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Integrações', href: '/integrations', icon: Plug, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Lista de compras', href: '/purchases', icon: ShoppingCart, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'NPS', href: '/nps', icon: MessageSquare, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },

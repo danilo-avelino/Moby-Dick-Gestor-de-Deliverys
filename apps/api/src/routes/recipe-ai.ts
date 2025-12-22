@@ -19,12 +19,13 @@ const enhanceRecipeSchema = z.object({
 
 export async function recipeAIRoutes(fastify: FastifyInstance) {
     // Register multipart for file uploads
-    await fastify.register(multipart, {
-        limits: {
-            fileSize: 10 * 1024 * 1024, // 10MB max per file
-            files: 5, // Max 5 files
-        },
-    });
+    // Handled globally in server.ts
+    // await fastify.register(multipart, {
+    //     limits: {
+    //         fileSize: 10 * 1024 * 1024, // 10MB max per file
+    //         files: 5, // Max 5 files
+    //     },
+    // });
 
     // Check if AI is available
     fastify.get('/status', {

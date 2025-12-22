@@ -113,6 +113,16 @@ export function errorHandler(
 
     // Log unexpected errors
     console.error('Unexpected error:', error);
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        // Hardcode path to project root to avoid CWD ambiguity
+        const logPath = 'D:\\Moby Dick Project\\GLOBAL_ERROR.log';
+        const logContent = `[${new Date().toISOString()}] ${error.name}: ${error.message}\nSTACK: ${error.stack}\nREQ_ID: ${request.id}\nURL: ${request.url}\n\n`;
+        fs.appendFileSync(logPath, logContent);
+    } catch (e) {
+        console.error('Failed to write to error log:', e);
+    }
 
     // Generic error response for production
     if (process.env.NODE_ENV === 'production') {
@@ -121,8 +131,10 @@ export function errorHandler(
 
     // Include error details in development
     response.error = {
-        code: 'INTERNAL_ERROR',
+        code: error.code || 'INTERNAL_ERROR',
         message: error.message,
+        // @ts-ignore
+        stack: error.stack
     };
     return reply.status(500).send(response);
 }

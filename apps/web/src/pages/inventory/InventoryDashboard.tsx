@@ -31,7 +31,30 @@ export default function InventoryDashboard() {
             navigate(`/stock/inventory/${data.id}`);
         },
         onError: (err: any) => {
-            toast.error(err.response?.data?.message || 'Erro ao iniciar inventário');
+            console.error('Inventory Start Error:', err);
+
+            let errorMessage = 'Erro ao iniciar inventário';
+
+            try {
+                const data = err.response?.data;
+
+                if (typeof data === 'string') {
+                    // Try parsing if string
+                    try {
+                        const parsed = JSON.parse(data);
+                        errorMessage = parsed.error?.message || parsed.message || errorMessage;
+                    } catch (e) {
+                        errorMessage = data || errorMessage;
+                    }
+                } else if (data) {
+                    errorMessage = data.error?.message || data.message || errorMessage;
+                }
+            } catch (e) {
+                console.error('Error parsing response:', e);
+            }
+
+            console.log('Final Error Message:', errorMessage);
+            toast.error(errorMessage);
         }
     });
 

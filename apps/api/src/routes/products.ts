@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from 'database';
 import { authenticate } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
+import * as XLSX from 'xlsx';
 import type { ApiResponse, PaginatedResponse, ProductDTO } from 'types';
 
 // Helper to handle NaN and empty values for optional numbers
@@ -534,8 +535,256 @@ export async function productRoutes(fastify: FastifyInstance) {
         return reply.send(response);
     });
 
+    // Export products
+    fastify.get('/export', {
+        preHandler: [authenticate],
+        schema: {
+            tags: ['Products'],
+            summary: 'Export products to Excel',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const where: any = {};
+        if (request.user.role !== 'SUPER_ADMIN') {
+            where.organizationId = request.user.organizationId;
+        }
+
+        const products = await prisma.product.findMany({
+            where,
+            include: {
+                category: true,
+                defaultSupplier: true,
+            },
+            orderBy: { name: 'asc' },
+        });
+
+        const data = products.map(p => ({
+            'Nome': p.name,
+            'SKU': p.sku || '',
+            'Código de Barras': p.barcode || '',
+            'Categoria': p.category?.name || '',
+            'Descrição': p.description || '',
+            'Unidade': p.baseUnit,
+            'Tipo Unidade': p.unitType,
+            'Estoque Atual': p.currentStock,
+            'Ponto de Reposição': p.reorderPoint || '',
+            'Ponto de Reposição Manual': p.manualReorderPoint || '',
+            'Custo Médio': p.avgCost,
+            'Preço Última Compra': p.lastPurchasePrice,
+            'Fornecedor Padrão': p.defaultSupplier?.name || '',
+            'Perecível': p.isPerishable ? 'Sim' : 'Não',
+            'Dias de Validade': p.shelfLifeDays || '',
+            'Dias de Lead Time': p.leadTimeDays || '',
+            'Ativo': p.isActive ? 'Sim' : 'Não',
+        }));
+
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(data);
+        XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
+
+        const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+        reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        reply.header('Content-Disposition', `attachment; filename="produtos-${new Date().toISOString().split('T')[0]}.xlsx"`);
+        return reply.send(buffer);
+    });
+
+    fastify.post('/import', {
+        preHandler: [authenticate],
+        schema: {
+            tags: ['Products'],
+            summary: 'Import products from Excel',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        console.log('📥 Import request received');
+        try {
+
+            const data = await request.file();
+            console.log('📁 File received:', data?.filename);
+
+            if (!data) {
+                console.log('❌ No file in request');
+                throw errors.badRequest('File is required');
+            }
+
+            const buffer = await data.toBuffer();
+            console.log('💾 File buffered, size:', buffer.length);
+
+            const wb = XLSX.read(buffer, { type: 'buffer' });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(ws);
+
+            const results = {
+                total: jsonData.length,
+                created: 0,
+                updated: 0,
+                errors: [] as string[],
+            };
+
+            for (const [index, row] of jsonData.entries()) {
+                try {
+                    const r = row as any;
+                    const name = r['Nome'];
+                    if (!name) {
+                        results.errors.push(`Linha ${index + 2}: Nome é obrigatório`);
+                        continue;
+                    }
+
+                    // Prepare data
+                    const productData: any = {
+                        name,
+                        sku: r['SKU'] ? String(r['SKU']) : undefined,
+                        barcode: r['Código de Barras'] ? String(r['Código de Barras']) : undefined,
+                        description: r['Descrição'] || undefined,
+                        baseUnit: r['Unidade'] || 'un',
+                        unitType: ['WEIGHT', 'VOLUME', 'UNIT', 'LENGTH'].includes(r['Tipo Unidade']) ? r['Tipo Unidade'] : 'UNIT',
+                        currentStock: typeof r['Estoque Atual'] === 'number' ? r['Estoque Atual'] : 0,
+                        reorderPoint: typeof r['Ponto de Reposição'] === 'number' ? r['Ponto de Reposição'] : undefined,
+                        manualReorderPoint: typeof r['Ponto de Reposição Manual'] === 'number' ? r['Ponto de Reposição Manual'] : undefined,
+                        avgCost: typeof r['Custo Médio'] === 'number' ? r['Custo Médio'] : 0,
+                        lastPurchasePrice: typeof r['Preço Última Compra'] === 'number' ? r['Preço Última Compra'] : 0,
+                        isPerishable: r['Perecível'] === 'Sim',
+                        shelfLifeDays: typeof r['Dias de Validade'] === 'number' ? r['Dias de Validade'] : undefined,
+                        leadTimeDays: typeof r['Dias de Lead Time'] === 'number' ? r['Dias de Lead Time'] : 1,
+                        isActive: r['Ativo'] !== 'Não',
+                        organizationId: request.user.organizationId!,
+                    };
+
+                    // Handle Category lookup/creation
+                    if (r['Categoria']) {
+                        const categoryName = String(r['Categoria']).trim();
+                        let category = await prisma.productCategory.findFirst({
+                            where: {
+                                name: { equals: categoryName, mode: 'insensitive' },
+                                organizationId: request.user.organizationId
+                            }
+                        });
+
+                        if (!category) {
+                            try {
+                                category = await prisma.productCategory.create({
+                                    data: {
+                                        name: categoryName,
+                                        organizationId: request.user.organizationId!
+                                    }
+                                });
+                            } catch (e) {
+                                // Race condition or other error, try finding again
+                                category = await prisma.productCategory.findFirst({
+                                    where: {
+                                        name: { equals: categoryName, mode: 'insensitive' },
+                                        organizationId: request.user.organizationId
+                                    }
+                                });
+                            }
+                        }
+
+                        if (category) {
+                            productData.categoryId = category.id;
+                        }
+                    }
+
+                    // Handle Supplier lookup/creation
+                    if (r['Fornecedor Padrão']) {
+                        const supplierName = String(r['Fornecedor Padrão']).trim();
+                        let supplier = await prisma.supplier.findFirst({
+                            where: {
+                                name: { equals: supplierName, mode: 'insensitive' },
+                                organizationId: request.user.organizationId
+                            }
+                        });
+
+                        if (!supplier) {
+                            try {
+                                supplier = await prisma.supplier.create({
+                                    data: {
+                                        name: supplierName,
+                                        organizationId: request.user.organizationId!
+                                    }
+                                });
+                            } catch (e) {
+                                supplier = await prisma.supplier.findFirst({
+                                    where: {
+                                        name: { equals: supplierName, mode: 'insensitive' },
+                                        organizationId: request.user.organizationId
+                                    }
+                                });
+                            }
+                        }
+
+                        if (supplier) {
+                            productData.defaultSupplierId = supplier.id;
+                        }
+                    }
+
+
+                    // Upsert logic
+                    // 1. Try to find by SKU if provided
+                    let existingProduct = null;
+                    if (productData.sku) {
+                        existingProduct = await prisma.product.findFirst({
+                            where: {
+                                organizationId: request.user.organizationId,
+                                sku: productData.sku
+                            }
+                        });
+                    }
+
+                    // 2. If no SKU match (or no SKU), try by Name
+                    if (!existingProduct) {
+                        existingProduct = await prisma.product.findFirst({
+                            where: {
+                                organizationId: request.user.organizationId,
+                                name: { equals: productData.name, mode: 'insensitive' }
+                            }
+                        });
+                    }
+
+                    if (existingProduct) {
+                        // Update
+                        await prisma.product.update({
+                            where: { id: existingProduct.id },
+                            data: productData
+                        });
+                        results.updated++;
+                    } else {
+                        // Create
+                        await prisma.product.create({
+                            data: productData
+                        });
+                        results.created++;
+                    }
+
+                } catch (err: any) {
+                    console.error('Import error row', index, err);
+                    results.errors.push(`Linha ${index + 2}: ${err.message}`);
+                }
+            }
+
+            return reply.send({
+                success: true,
+                data: {
+                    message: `Importação concluída. ${results.created} criados, ${results.updated} atualizados.`,
+                    ...results
+                }
+            });
+        } catch (err: any) {
+            console.error('❌ Import handler fatal error:', err);
+            // Write to debug file
+            const fs = require('fs');
+            const path = require('path');
+            const logPath = path.join(process.cwd(), 'debug_error.log');
+            const logContent = `${new Date().toISOString()} - ERROR: ${err.message}\nSTACK: ${err.stack}\n\n`;
+            fs.appendFileSync(logPath, logContent);
+            throw err;
+        }
+    });
+
+
     // Delete ALL products for the restaurant (dangerous operation)
     fastify.delete('/all', {
+
         preHandler: [authenticate],
         schema: {
             tags: ['Products'],

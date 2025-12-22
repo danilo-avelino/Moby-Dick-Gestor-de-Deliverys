@@ -20,7 +20,8 @@ import CMV from './pages/cmv/CMV';
 import MenuAnalysis from './pages/menu-analysis/MenuAnalysis';
 import Menu from './pages/menu/Menu';
 import Alerts from './pages/alerts/Alerts';
-import Goals from './pages/goals/Goals';
+// import Goals from './pages/goals/Goals'; // Deprecated
+import IndicatorsDashboard from './pages/indicators/IndicatorsDashboard'; // New
 import Integrations from './pages/integrations/Integrations';
 import IntegrationInspector from './pages/integrations/IntegrationInspector';
 import Purchases from './pages/purchases/Purchases';
@@ -115,7 +116,8 @@ export default function App() {
                     <Route path="menu-analysis" element={<MenuAnalysis />} />
                     <Route path="menu" element={<Menu />} />
                     <Route path="alerts" element={<Alerts />} />
-                    <Route path="goals" element={<Goals />} />
+                    {/* <Route path="goals" element={<Goals />} /> */}
+                    <Route path="indicators" element={<IndicatorsDashboard />} />
                     <Route path="integrations" element={<Integrations />} />
                     <Route path="purchases" element={<PurchaseLists />} />
                     <Route path="purchases/:id" element={<PurchaseListDetail />} />

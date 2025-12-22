@@ -6,11 +6,12 @@ import type { ApiResponse } from 'types';
 
 export async function stockImportRoutes(fastify: FastifyInstance) {
     // Register multipart plugin for this route
-    await fastify.register(multipart, {
-        limits: {
-            fileSize: 10 * 1024 * 1024, // 10MB max
-        },
-    });
+    // Removed: handled globally in server.ts
+    // await fastify.register(multipart, {
+    //     limits: {
+    //         fileSize: 10 * 1024 * 1024, // 10MB max
+    //     },
+    // });
 
     // Import stock from Excel file
     fastify.post('/import', {

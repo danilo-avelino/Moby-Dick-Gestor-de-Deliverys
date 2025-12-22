@@ -13,6 +13,22 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
+        if (!request.user || !request.user.costCenterId) {
+            const response: ApiResponse = {
+                success: true,
+                data: {
+                    revenue: { today: 0, yesterday: 0, thisWeek: 0, thisMonth: 0, trend: 0 },
+                    orders: { today: 0, yesterday: 0, thisWeek: 0, thisMonth: 0, trend: 0 },
+                    avgTicket: { today: 0, thisWeek: 0, thisMonth: 0, trend: 0 },
+                    cmv: { today: 0, thisWeek: 0, thisMonth: 0, target: 30, trend: 0 },
+                    alerts: { unread: 0, critical: 0 },
+                    stockAlerts: { lowStock: 0, expiring: 0 },
+                },
+            };
+            return reply.send(response);
+        }
+        console.log('DASHBOARD_WITH_CC_ID:', request.user.costCenterId);
+
         const today = new Date();
         today.setDate(today.getDate() - 1); // User wants "Today" to be "Yesterday" (completed day)
         today.setHours(0, 0, 0, 0);
