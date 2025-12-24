@@ -25,7 +25,7 @@ export async function indicatorRoutes(fastify: FastifyInstance) {
         const { costCenterId, permissions, id: userId } = request.user;
 
         if (!costCenterId) {
-            throw errors.badRequest('User has no cost center');
+            return [];
         }
 
         const canConfigure = permissions?.indicators?.configure;

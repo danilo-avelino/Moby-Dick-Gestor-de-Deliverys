@@ -1,5 +1,7 @@
 {
     "version": 2,
     "buildCommand": "turbo run build",
+    "framework": "vite",
+    "outputDirectory": "apps/web/dist",
     "ignoreCommand": "git diff --quiet HEAD^ HEAD ./"
 }

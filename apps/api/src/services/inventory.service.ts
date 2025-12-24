@@ -220,6 +220,59 @@ export class InventoryService {
                     itemsCorrect: correctCount
                 }
             });
+
+            // Update Stock Accuracy Indicator
+            const indicator = await tx.indicator.findFirst({
+                where: {
+                    costCenterId: session.costCenterId,
+                    name: 'Precisão de Estoque'
+                }
+            });
+
+            if (indicator) {
+                const now = new Date();
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+                const monthlySessions = await tx.inventorySession.findMany({
+                    where: {
+                        costCenterId: session.costCenterId,
+                        status: 'COMPLETED',
+                        endDate: {
+                            gte: startOfMonth,
+                            lte: endOfMonth
+                        }
+                    },
+                    select: {
+                        precision: true
+                    }
+                });
+
+                const precisions = monthlySessions
+                    .map(s => s.precision)
+                    .filter(p => p !== null) as number[];
+
+                const avgPrecision = precisions.length > 0
+                    ? precisions.reduce((a, b) => a + b, 0) / precisions.length
+                    : precision;
+
+                await tx.indicatorResult.create({
+                    data: {
+                        indicatorId: indicator.id,
+                        value: avgPrecision,
+                        targetSnapshot: indicator.targetValue,
+                        date: new Date()
+                    }
+                });
+
+                await tx.indicator.update({
+                    where: { id: indicator.id },
+                    data: {
+                        currentValue: avgPrecision,
+                        updatedAt: new Date()
+                    }
+                });
+            }
         }, {
             maxWait: 10000,
             timeout: 60000

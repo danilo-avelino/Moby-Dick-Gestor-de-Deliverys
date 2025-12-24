@@ -73,7 +73,7 @@ export async function buildServer() {
         // @ts-ignore
         console.log('Parsers keys (post-remove):', fastify.contentTypeParser?.customParsers?.keys ? Array.from(fastify.contentTypeParser.customParsers.keys()) : 'unknown');
 
-        await fastify.register(require('@fastify/multipart'), {
+        await fastify.register(multipart, {
             limits: {
                 fileSize: 10 * 1024 * 1024, // 10MB max
             },
