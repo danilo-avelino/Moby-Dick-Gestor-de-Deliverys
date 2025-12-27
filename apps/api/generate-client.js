@@ -22,25 +22,9 @@ try {
 
     fs.writeFileSync(buildSchemaPath, schemaContent);
 
-    // 4. Resolve binary directly to bypass npx caching/magic
-    const prismaBin = path.resolve(__dirname, 'node_modules', '.bin', 'prisma');
-
-    if (!fs.existsSync(prismaBin)) {
-        console.error('Prisma binary not found at:', prismaBin);
-        // Fallback to npx but likely fail
-        throw new Error('Prisma binary missing after install');
-    }
-
-    console.log('Using direct binary:', prismaBin);
-
-    // Check version
-    try {
-        execSync(`"${prismaBin}" -v`, { stdio: 'inherit' });
-    } catch (e) { console.log('Version check failed'); }
-
-    // 5. Generate with dummy env
-    console.log('Running generation...');
-    execSync(`"${prismaBin}" generate --schema="${buildSchemaPath}"`, {
+    // 4. Generate with npx (safer for path resolution)
+    console.log('Running generation with npx...');
+    execSync(`npx prisma generate --schema="${buildSchemaPath}"`, {
         stdio: 'inherit',
         env: {
             ...process.env,
