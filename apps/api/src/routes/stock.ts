@@ -16,6 +16,7 @@ const createMovementSchema = z.object({
     notes: z.string().optional(),
     batchNumber: z.string().optional(),
     expirationDate: z.string().optional(),
+    deductStock: z.boolean().default(true),
 });
 
 export async function stockRoutes(fastify: FastifyInstance) {
@@ -136,7 +137,13 @@ export async function stockRoutes(fastify: FastifyInstance) {
 
         // Calculate quantity change and new stock
         const isEntry = body.type === 'IN' || body.type === 'RETURN';
-        const quantityChange = isEntry ? body.quantity : -body.quantity;
+        let quantityChange = isEntry ? body.quantity : -body.quantity;
+
+        // If WASTE and not deducting stock, quantity change is 0
+        if (body.type === 'WASTE' && !body.deductStock) {
+            quantityChange = 0;
+        }
+
         const newStock = product.currentStock + quantityChange;
 
         // Check if we'd go negative
@@ -424,11 +431,10 @@ export async function stockRoutes(fastify: FastifyInstance) {
                 // Existing code used `product.restaurantId !== request.user!.costCenterId`.
                 // We will keep this safety check: The product MUST belong to the Source Restaurant (defined by product itself or user context).
 
-                if (request.user?.organizationId && product.restaurantId !== request.user.organizationId) {
-                    // This check ensures we don't accidentally withdraw from another restaurant's stock
-                    // based on just ID matching.
-                    throw errors.badRequest(`Product ${product.name} does not belong to the active restaurant context.`);
-                }
+                // Validation removed as per user request (no need for context binding)
+                // if (request.user?.organizationId && product.restaurantId !== request.user.organizationId) {
+                //      throw errors.badRequest(`Product ${product.name} does not belong to the active restaurant context.`);
+                // }
 
                 if (product.currentStock < item.quantity) {
                     throw errors.badRequest(`Insufficient stock for ${product.name}. Requested: ${item.quantity}, Available: ${product.currentStock}`);
@@ -708,6 +714,7 @@ export async function stockRoutes(fastify: FastifyInstance) {
                     todayExits: 0,
                     monthEntries: 0,
                     monthExits: 0,
+                    monthWaste: 0,
                 },
             });
         }
@@ -771,6 +778,7 @@ export async function stockRoutes(fastify: FastifyInstance) {
         const [
             todayEntriesResult, todayExitsResult,
             monthEntriesResult, monthExitsResult,
+            monthWasteResult,
             todayAdjustments, monthAdjustments
         ] = await Promise.all([
             // Today entries (IN)
@@ -809,6 +817,15 @@ export async function stockRoutes(fastify: FastifyInstance) {
                 },
                 _sum: { totalCost: true },
             }),
+            // Month waste
+            prisma.stockMovement.aggregate({
+                where: {
+                    product: request.user?.organizationId ? { organizationId: request.user.organizationId } : undefined,
+                    type: 'WASTE',
+                    createdAt: { gte: monthStart },
+                },
+                _sum: { totalCost: true },
+            }),
             calculateAdjustments(today),
             calculateAdjustments(monthStart),
         ]);
@@ -817,7 +834,9 @@ export async function stockRoutes(fastify: FastifyInstance) {
         const todayEntriesTotal = (todayEntriesResult._sum.totalCost || 0) + todayAdjustments.entries;
         const todayExitsTotal = (todayExitsResult._sum.totalCost || 0) + todayAdjustments.exits;
         const monthEntriesTotal = (monthEntriesResult._sum.totalCost || 0) + monthAdjustments.entries;
+
         const monthExitsTotal = (monthExitsResult._sum.totalCost || 0) + monthAdjustments.exits;
+        const monthWasteTotal = monthWasteResult._sum.totalCost || 0;
 
         const response: ApiResponse = {
             success: true,
@@ -830,6 +849,7 @@ export async function stockRoutes(fastify: FastifyInstance) {
                 todayExits: todayExitsTotal,
                 monthEntries: monthEntriesTotal,
                 monthExits: monthExitsTotal,
+                monthWaste: monthWasteTotal,
             },
         };
 

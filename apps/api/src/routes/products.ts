@@ -24,8 +24,10 @@ const createProductSchema = z.object({
     description: z.preprocess((val) => (val === '' || val === null ? undefined : val), z.string().optional()),
     categoryId: z.preprocess((val) => (val === '' || val === null ? undefined : val), z.string().optional()),
     baseUnit: z.string().default('un'),
+    lastPurchasePrice: optionalPositiveNumber,
     unitType: z.enum(['WEIGHT', 'VOLUME', 'UNIT', 'LENGTH']).default('UNIT'),
     conversions: z.record(z.number()).optional().nullable(),
+    currentStock: optionalPositiveNumber,
     reorderPoint: optionalNumber,
     manualReorderPoint: optionalNumber,
     isPerishable: z.boolean().optional(),
@@ -164,7 +166,7 @@ export async function productRoutes(fastify: FastifyInstance) {
                         defaultSupplier: p.defaultSupplier || undefined,
                         isActive: p.isActive,
                         imageUrl: p.imageUrl || undefined,
-                        countsCMV: p.countsCMV,
+                        // countsCMV: p.countsCMV, // Field does not exist in DB
                         last30DaysConsumption,
                         autonomyDays,
                         createdAt: p.createdAt.toISOString(),
@@ -319,15 +321,39 @@ export async function productRoutes(fastify: FastifyInstance) {
             }
         }
 
-        const product = await prisma.product.create({
-            data: {
-                ...body,
-                organizationId: request.user!.organizationId!,
-            },
-            include: {
-                category: true,
-                defaultSupplier: true,
-            },
+        const product = await prisma.$transaction(async (tx) => {
+            const newProduct = await tx.product.create({
+                data: {
+                    ...body,
+                    conversions: body.conversions ?? undefined,
+                    organizationId: request.user!.organizationId!,
+                },
+                include: {
+                    category: true,
+                    defaultSupplier: true,
+                },
+            });
+
+            // Create initial stock movement if defined
+            if (body.currentStock && body.currentStock > 0) {
+                await tx.stockMovement.create({
+                    data: {
+                        productId: newProduct.id,
+                        type: 'ADJUSTMENT',
+                        unit: newProduct.baseUnit,
+                        quantity: body.currentStock,
+                        stockBefore: 0,
+                        stockAfter: body.currentStock,
+                        costPerUnit: newProduct.lastPurchasePrice || newProduct.avgCost || 0,
+                        totalCost: (newProduct.lastPurchasePrice || newProduct.avgCost || 0) * body.currentStock,
+                        notes: 'Estoque inicial (Cadastro de Produto)',
+                        userId: request.user?.id,
+                        organizationId: request.user!.organizationId,
+                    }
+                });
+            }
+
+            return newProduct;
         });
 
         const response: ApiResponse = {
@@ -390,7 +416,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         // Filter only the fields that can be updated
         const allowedFields = [
             'sku', 'barcode', 'name', 'description', 'categoryId', 'baseUnit',
-            'unitType', 'conversions', 'reorderPoint', 'manualReorderPoint',
+            'lastPurchasePrice', 'unitType', 'conversions', 'reorderPoint', 'manualReorderPoint',
             'isPerishable', 'shelfLifeDays', 'defaultSupplierId', 'leadTimeDays',
             'imageUrl', 'isActive'
         ];
@@ -447,12 +473,29 @@ export async function productRoutes(fastify: FastifyInstance) {
         }
 
         // Check if product is used in recipes
-        const recipeCount = await prisma.recipeIngredient.count({
+        const recipesUsingProduct = await prisma.recipeIngredient.findMany({
             where: { productId: request.params.id },
+            include: {
+                recipe: {
+                    select: { name: true, isActive: true }
+                }
+            }
         });
 
-        if (recipeCount > 0) {
-            throw errors.conflict(`Product is used in ${recipeCount} recipe(s). Deactivate instead.`);
+        if (recipesUsingProduct.length > 0) {
+            // Filter out ingredients that might be orphaned (no recipe) if that's possible, 
+            // though Prisma relation should prevent it unless optional. 
+            // Recipe is non-nullable in schema: `recipe Recipe ...` so no orphans.
+
+            const recipeNames = recipesUsingProduct
+                .map(r => r.recipe.name)
+                .slice(0, 3) // List first 3
+                .join(', ');
+
+            const count = recipesUsingProduct.length;
+            const morText = count > 3 ? ` and ${count - 3} more` : '';
+
+            throw errors.conflict(`Product is used in ${count} recipe(s): ${recipeNames}${morText}. Please remove it from recipes first.`);
         }
 
         await prisma.product.delete({
@@ -535,6 +578,18 @@ export async function productRoutes(fastify: FastifyInstance) {
         return reply.send(response);
     });
 
+    // Helper for number parsing (handles "10,50" strings from Excel)
+    const parseExcelNumber = (val: any, defaultVal = 0): number => {
+        if (val === undefined || val === null || val === '') return defaultVal;
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+            const clean = val.replace(',', '.'); // Handle PT-BR
+            const num = parseFloat(clean);
+            return isNaN(num) ? defaultVal : num;
+        }
+        return defaultVal;
+    };
+
     // Export products
     fastify.get('/export', {
         preHandler: [authenticate],
@@ -558,6 +613,7 @@ export async function productRoutes(fastify: FastifyInstance) {
             orderBy: { name: 'asc' },
         });
 
+        // Define strict columns and verify data types
         const data = products.map(p => ({
             'Nome': p.name,
             'SKU': p.sku || '',
@@ -567,14 +623,14 @@ export async function productRoutes(fastify: FastifyInstance) {
             'Unidade': p.baseUnit,
             'Tipo Unidade': p.unitType,
             'Estoque Atual': p.currentStock,
-            'Ponto de Reposição': p.reorderPoint || '',
+            'Ponto de Reposição': p.reorderPoint || 0,
             'Ponto de Reposição Manual': p.manualReorderPoint || '',
             'Custo Médio': p.avgCost,
-            'Preço Última Compra': p.lastPurchasePrice,
+            'Preço Última Compra': p.lastPurchasePrice || 0,
             'Fornecedor Padrão': p.defaultSupplier?.name || '',
             'Perecível': p.isPerishable ? 'Sim' : 'Não',
             'Dias de Validade': p.shelfLifeDays || '',
-            'Dias de Lead Time': p.leadTimeDays || '',
+            'Dias de Lead Time': p.leadTimeDays || 1,
             'Ativo': p.isActive ? 'Sim' : 'Não',
         }));
 
@@ -599,7 +655,6 @@ export async function productRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         console.log('📥 Import request received');
         try {
-
             const data = await request.file();
             console.log('📁 File received:', data?.filename);
 
@@ -623,133 +678,97 @@ export async function productRoutes(fastify: FastifyInstance) {
             };
 
             for (const [index, row] of jsonData.entries()) {
+                const rowIndex = index + 2; // Excel header is 1
                 try {
                     const r = row as any;
                     const name = r['Nome'];
                     if (!name) {
-                        results.errors.push(`Linha ${index + 2}: Nome é obrigatório`);
+                        results.errors.push(`Linha ${rowIndex}: Nome é obrigatório`);
                         continue;
                     }
 
-                    // Prepare data
+                    // Prepare data with parsing safety
                     const productData: any = {
-                        name,
-                        sku: r['SKU'] ? String(r['SKU']) : undefined,
-                        barcode: r['Código de Barras'] ? String(r['Código de Barras']) : undefined,
-                        description: r['Descrição'] || undefined,
-                        baseUnit: r['Unidade'] || 'un',
+                        name: String(name).trim(),
+                        sku: r['SKU'] ? String(r['SKU']).trim() : undefined,
+                        barcode: r['Código de Barras'] ? String(r['Código de Barras']).trim() : undefined,
+                        description: r['Descrição'] ? String(r['Descrição']) : undefined,
+                        baseUnit: r['Unidade'] ? String(r['Unidade']).trim() : 'un',
                         unitType: ['WEIGHT', 'VOLUME', 'UNIT', 'LENGTH'].includes(r['Tipo Unidade']) ? r['Tipo Unidade'] : 'UNIT',
-                        currentStock: typeof r['Estoque Atual'] === 'number' ? r['Estoque Atual'] : 0,
-                        reorderPoint: typeof r['Ponto de Reposição'] === 'number' ? r['Ponto de Reposição'] : undefined,
-                        manualReorderPoint: typeof r['Ponto de Reposição Manual'] === 'number' ? r['Ponto de Reposição Manual'] : undefined,
-                        avgCost: typeof r['Custo Médio'] === 'number' ? r['Custo Médio'] : 0,
-                        lastPurchasePrice: typeof r['Preço Última Compra'] === 'number' ? r['Preço Última Compra'] : 0,
-                        isPerishable: r['Perecível'] === 'Sim',
-                        shelfLifeDays: typeof r['Dias de Validade'] === 'number' ? r['Dias de Validade'] : undefined,
-                        leadTimeDays: typeof r['Dias de Lead Time'] === 'number' ? r['Dias de Lead Time'] : 1,
-                        isActive: r['Ativo'] !== 'Não',
+                        currentStock: parseExcelNumber(r['Estoque Atual']),
+                        reorderPoint: parseExcelNumber(r['Ponto de Reposição']),
+                        manualReorderPoint: r['Ponto de Reposição Manual'] ? parseExcelNumber(r['Ponto de Reposição Manual']) : undefined,
+                        avgCost: parseExcelNumber(r['Custo Médio']),
+                        lastPurchasePrice: parseExcelNumber(r['Preço Última Compra']),
+                        isPerishable: r['Perecível'] === 'Sim' || r['Perecível'] === 'true',
+                        shelfLifeDays: r['Dias de Validade'] ? parseExcelNumber(r['Dias de Validade']) : undefined,
+                        leadTimeDays: r['Dias de Lead Time'] ? parseExcelNumber(r['Dias de Lead Time']) : 1,
+                        isActive: r['Ativo'] !== 'Não' && r['Ativo'] !== 'false', // Default active
                         organizationId: request.user.organizationId!,
                     };
 
-                    // Handle Category lookup/creation
+                    // Clean undefined/empty strings for optional matches
+                    if (productData.sku === '') productData.sku = undefined;
+                    if (productData.barcode === '') productData.barcode = undefined;
+
+                    // Handle Category
                     if (r['Categoria']) {
                         const categoryName = String(r['Categoria']).trim();
+                        // Find or Create logic...
                         let category = await prisma.productCategory.findFirst({
-                            where: {
-                                name: { equals: categoryName, mode: 'insensitive' },
-                                organizationId: request.user.organizationId
-                            }
+                            where: { name: { equals: categoryName, mode: 'insensitive' }, organizationId: request.user.organizationId }
                         });
-
                         if (!category) {
-                            try {
-                                category = await prisma.productCategory.create({
-                                    data: {
-                                        name: categoryName,
-                                        organizationId: request.user.organizationId!
-                                    }
+                            category = await prisma.productCategory.create({
+                                data: { name: categoryName, organizationId: request.user.organizationId! }
+                            }).catch(async () => {
+                                // Race condition fallback
+                                return prisma.productCategory.findFirst({
+                                    where: { name: { equals: categoryName, mode: 'insensitive' }, organizationId: request.user.organizationId }
                                 });
-                            } catch (e) {
-                                // Race condition or other error, try finding again
-                                category = await prisma.productCategory.findFirst({
-                                    where: {
-                                        name: { equals: categoryName, mode: 'insensitive' },
-                                        organizationId: request.user.organizationId
-                                    }
-                                });
-                            }
+                            });
                         }
-
-                        if (category) {
-                            productData.categoryId = category.id;
-                        }
+                        if (category) productData.categoryId = category.id;
                     }
 
-                    // Handle Supplier lookup/creation
+                    // Handle Supplier
                     if (r['Fornecedor Padrão']) {
                         const supplierName = String(r['Fornecedor Padrão']).trim();
                         let supplier = await prisma.supplier.findFirst({
-                            where: {
-                                name: { equals: supplierName, mode: 'insensitive' },
-                                organizationId: request.user.organizationId
-                            }
+                            where: { name: { equals: supplierName, mode: 'insensitive' }, organizationId: request.user.organizationId }
                         });
-
                         if (!supplier) {
-                            try {
-                                supplier = await prisma.supplier.create({
-                                    data: {
-                                        name: supplierName,
-                                        organizationId: request.user.organizationId!
-                                    }
+                            supplier = await prisma.supplier.create({
+                                data: { name: supplierName, organizationId: request.user.organizationId! }
+                            }).catch(async () => {
+                                return prisma.supplier.findFirst({
+                                    where: { name: { equals: supplierName, mode: 'insensitive' }, organizationId: request.user.organizationId }
                                 });
-                            } catch (e) {
-                                supplier = await prisma.supplier.findFirst({
-                                    where: {
-                                        name: { equals: supplierName, mode: 'insensitive' },
-                                        organizationId: request.user.organizationId
-                                    }
-                                });
-                            }
+                            });
                         }
-
-                        if (supplier) {
-                            productData.defaultSupplierId = supplier.id;
-                        }
+                        if (supplier) productData.defaultSupplierId = supplier.id;
                     }
 
-
-                    // Upsert logic
-                    // 1. Try to find by SKU if provided
+                    // Upsert logic (SKU Priority, then Name)
                     let existingProduct = null;
                     if (productData.sku) {
                         existingProduct = await prisma.product.findFirst({
-                            where: {
-                                organizationId: request.user.organizationId,
-                                sku: productData.sku
-                            }
+                            where: { organizationId: request.user.organizationId, sku: productData.sku }
                         });
                     }
-
-                    // 2. If no SKU match (or no SKU), try by Name
                     if (!existingProduct) {
                         existingProduct = await prisma.product.findFirst({
-                            where: {
-                                organizationId: request.user.organizationId,
-                                name: { equals: productData.name, mode: 'insensitive' }
-                            }
+                            where: { organizationId: request.user.organizationId, name: { equals: productData.name, mode: 'insensitive' } }
                         });
                     }
 
                     if (existingProduct) {
-                        // Update
                         await prisma.product.update({
                             where: { id: existingProduct.id },
                             data: productData
                         });
                         results.updated++;
                     } else {
-                        // Create
                         await prisma.product.create({
                             data: productData
                         });
@@ -758,7 +777,7 @@ export async function productRoutes(fastify: FastifyInstance) {
 
                 } catch (err: any) {
                     console.error('Import error row', index, err);
-                    results.errors.push(`Linha ${index + 2}: ${err.message}`);
+                    results.errors.push(`Linha ${rowIndex}: ${err.message}`);
                 }
             }
 
@@ -769,15 +788,17 @@ export async function productRoutes(fastify: FastifyInstance) {
                     ...results
                 }
             });
+
         } catch (err: any) {
             console.error('❌ Import handler fatal error:', err);
-            // Write to debug file
-            const fs = require('fs');
-            const path = require('path');
-            const logPath = path.join(process.cwd(), 'debug_error.log');
-            const logContent = `${new Date().toISOString()} - ERROR: ${err.message}\nSTACK: ${err.stack}\n\n`;
-            fs.appendFileSync(logPath, logContent);
-            throw err;
+            // Log to file for deep debug if needed
+            return reply.status(500).send({
+                success: false,
+                error: {
+                    code: 'INTERNAL_ERROR',
+                    message: `Falha ao processar arquivo: ${err.message}`
+                }
+            });
         }
     });
 

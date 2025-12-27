@@ -223,18 +223,19 @@ export default function ProductDetailsModal({ isOpen, onClose, productId }: Prod
                                                                 <p className="text-lg font-bold text-slate-700 dark:text-slate-300">{new Date(move.createdAt).getDate()}</p>
                                                             </div>
                                                             <div className={`p-3 rounded-full ${move.type === 'IN' ? 'bg-green-100 text-green-600' :
-                                                                move.type === 'OUT' ? 'bg-red-100 text-red-600' :
+                                                                (move.type === 'OUT' || move.type === 'WASTE') ? 'bg-red-100 text-red-600' :
                                                                     'bg-orange-100 text-orange-600'
                                                                 }`}>
                                                                 {move.type === 'IN' ? <ArrowDownRight className="w-5 h-5" /> :
-                                                                    move.type === 'OUT' ? <ArrowUpRight className="w-5 h-5" /> :
+                                                                    (move.type === 'OUT' || move.type === 'WASTE') ? <ArrowUpRight className="w-5 h-5" /> :
                                                                         <RefreshCw className="w-5 h-5" />}
                                                             </div>
                                                             <div>
                                                                 <p className="font-bold text-slate-800 dark:text-white uppercase text-sm">
                                                                     {move.type === 'IN' ? 'ENTRADA (COMPRAS)' :
                                                                         move.type === 'OUT' ? 'SAÍDA' :
-                                                                            'INVENTÁRIO / AJUSTE'}
+                                                                            move.type === 'WASTE' ? 'PERDA / DESPERDÍCIO' :
+                                                                                'INVENTÁRIO / AJUSTE'}
                                                                 </p>
                                                                 <p className="text-xs text-gray-400">{move.supplier?.name || move.user?.firstName || 'Sistema'}</p>
                                                             </div>
@@ -243,8 +244,8 @@ export default function ProductDetailsModal({ isOpen, onClose, productId }: Prod
                                                         <div className="flex items-center gap-8 text-right">
                                                             <div>
                                                                 <p className="text-xs text-gray-400">Quantidade</p>
-                                                                <p className={`font-bold ${move.type === 'OUT' ? 'text-red-500' : 'text-green-500'}`}>
-                                                                    {move.type === 'OUT' ? '-' : '+'}{formatNumber(move.quantity)} {product.baseUnit}
+                                                                <p className={`font-bold ${(move.type === 'OUT' || move.type === 'WASTE') ? 'text-red-500' : 'text-green-500'}`}>
+                                                                    {(move.type === 'OUT' || move.type === 'WASTE') ? '-' : '+'}{formatNumber(move.quantity)} {product.baseUnit}
                                                                 </p>
                                                             </div>
                                                             <div className="hidden sm:block">

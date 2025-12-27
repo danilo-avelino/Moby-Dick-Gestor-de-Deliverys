@@ -150,6 +150,45 @@ export default function ProductForm() {
                     </div>
                 </div>
 
+                {/* Preço de Compra */}
+                <div className="glass-card">
+                    <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                        <DollarSign className="w-5 h-5 text-green-400" /> Preço de Compra
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="label">Preço de Compra (R$)</label>
+                            <input
+                                type="number"
+                                step="0.01"
+                                {...register('lastPurchasePrice', { valueAsNumber: true })}
+                                className="input"
+                                placeholder="0.00"
+                                defaultValue={product?.lastPurchasePrice}
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                                Último preço de compra do produto.
+                            </p>
+                        </div>
+
+                        {!isEdit && (
+                            <div>
+                                <label className="label">Estoque Inicial (Atual)</label>
+                                <input
+                                    type="number"
+                                    step="0.001"
+                                    {...register('currentStock', { valueAsNumber: true })}
+                                    className="input"
+                                    placeholder="0"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Quantidade atual em estoque. Será criado um movimento inicial.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
                 {/* Estoque e Medidas */}
                 <div className="glass-card">
                     <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">

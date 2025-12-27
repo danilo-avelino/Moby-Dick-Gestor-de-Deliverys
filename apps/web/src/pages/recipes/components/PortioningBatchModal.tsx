@@ -94,12 +94,12 @@ export function PortioningBatchModal({ isOpen, onClose, onAddNewProcess }: Porti
             const res = await api.get('/api/suppliers');
             return res.data;
         },
-        enabled: isOpen && step === 'batch-data'
+        enabled: isOpen
     });
 
     const processes = processesData?.data || [];
     const users = usersData?.data || [];
-    const suppliers = suppliersData?.data || [];
+    const suppliers = (Array.isArray(suppliersData?.data) ? suppliersData.data : []) || [];
 
     // Filtering
     const filteredProcesses = useMemo(() => {
@@ -413,8 +413,8 @@ export function PortioningBatchModal({ isOpen, onClose, onAddNewProcess }: Porti
                                     </span>
                                     {yieldPercentage > 0 && (
                                         <span className={`mb-1.5 px-2 py-0.5 rounded text-xs font-bold border ${yieldPercentage >= 95 && yieldPercentage <= 105
-                                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                                                : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+                                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                            : 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
                                             }`}>
                                             {formatNumber(yieldPercentage)}%
                                         </span>

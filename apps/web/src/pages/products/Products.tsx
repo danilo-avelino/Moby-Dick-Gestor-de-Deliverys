@@ -5,22 +5,19 @@ import { formatCurrency, formatNumber } from '../../lib/utils';
 import {
     Plus, Search, Package, AlertTriangle, Edit, Trash2, DollarSign,
     Calendar, Tag, Filter, TrendingDown, Archive, ShoppingCart, MoreVertical,
-    Settings, Users, Layers, X, Download, FileSpreadsheet
+    Settings, Users, Layers, X
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 
 import ProductDetailsModal from '../stock/components/ProductDetailsModal';
-import StockImportModal from '../stock/components/StockImportModal';
-import ProductImportModal from './components/ProductImportModal';
 
 export default function Products() {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [showCategoriesModal, setShowCategoriesModal] = useState(false);
     const [showSuppliersModal, setShowSuppliersModal] = useState(false);
-    const [showProductImportModal, setShowProductImportModal] = useState(false);
-    const [showStockImportModal, setShowStockImportModal] = useState(false);
+
     const [search, setSearch] = useState('');
     const [categoryId, setCategoryId] = useState('all');
     const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -62,22 +59,7 @@ export default function Products() {
         setDismissedCalibrationWarning(true);
     };
 
-    const handleExport = async () => {
-        try {
-            const response = await api.get('/api/products/export', {
-                responseType: 'blob',
-            });
-            const url = window.URL.createObjectURL(new Blob([response.data]));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `produtos-${new Date().toISOString().split('T')[0]}.xlsx`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-        } catch (error) {
-            toast.error('Erro ao exportar produtos');
-        }
-    };
+
 
     // Queries
     const { data: productsData, isLoading: isLoadingProducts, refetch: refetchProducts, error: productsError, isError: isProductsError } = useQuery({
@@ -175,28 +157,7 @@ export default function Products() {
                     <p className="text-gray-400">Gerencie seu catálogo de produtos</p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                    <button
-                        onClick={handleExport}
-                        className="btn-ghost text-sm"
-                    >
-                        <Download className="w-4 h-4 mr-2" />
-                        Exportar
-                    </button>
-                    <button
-                        onClick={() => setShowProductImportModal(true)}
-                        className="btn-ghost text-sm"
-                    >
-                        <Archive className="w-4 h-4 mr-2" />
-                        Importar
-                    </button>
-                    <button
-                        onClick={() => setShowStockImportModal(true)}
-                        className="btn-ghost text-sm"
-                        title="Importar contagem de estoque"
-                    >
-                        <FileSpreadsheet className="w-4 h-4 mr-2" />
-                        Estoque
-                    </button>
+
                     <button
                         onClick={() => setShowCategoriesModal(true)}
                         className="btn-ghost text-sm"
@@ -570,17 +531,7 @@ export default function Products() {
                 productId={selectedProductId}
             />
 
-            {/* Product Import Modal */}
-            <ProductImportModal
-                isOpen={showProductImportModal}
-                onClose={() => setShowProductImportModal(false)}
-            />
 
-            {/* Stock Import Modal */}
-            <StockImportModal
-                isOpen={showStockImportModal}
-                onClose={() => setShowStockImportModal(false)}
-            />
         </div>
     );
 }

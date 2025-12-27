@@ -10,7 +10,7 @@ import { OptimizeChatModal } from './OptimizeChatModal';
 export function ScheduleView() {
     const {
         year, month, sectors, selectedSectorId, selectSector,
-        matrix, stats, simulate, optimize, finalize, isSimulating, isLoading,
+        matrix, stats, simulate, optimize, finalize, isSimulating, isLoading, error,
         updateCell, deleteSchedule, fetchSectors
     } = useScheduleStore();
 
@@ -144,6 +144,14 @@ export function ScheduleView() {
                 </div>
             )}
 
+            {/* Error Message */}
+            {error && (
+                <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg>
+                    <span className="text-red-400 font-medium">{error}</span>
+                </div>
+            )}
+
             {/* Grid */}
             <div className="table-container max-h-[600px]">
                 <table className="table min-w-full text-xs border-collapse">
@@ -266,6 +274,6 @@ export function ScheduleView() {
                 sectorId={selectedSectorId || ''}
                 onApplyChanges={(ops) => console.log('Apply changes', ops)}
             />
-        </div>
+        </div >
     );
 }

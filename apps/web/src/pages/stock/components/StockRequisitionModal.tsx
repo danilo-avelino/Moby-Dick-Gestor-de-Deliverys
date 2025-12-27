@@ -237,19 +237,14 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
                                 >
                                     <option value="">Selecione o destino...</option>
 
-                                    {/* Group: Fixed */}
-                                    <optgroup label="Interno">
-                                        {costCenters.filter(c => c.type === 'FIXED').map(c => (
-                                            <option key={c.id} value={c.id}>{c.name}</option>
-                                        ))}
-                                    </optgroup>
+                                    {/* Groups Flattened */}
+                                    {costCenters.filter(c => c.type === 'FIXED').map(c => (
+                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                    ))}
 
-                                    {/* Group: Restaurants */}
-                                    <optgroup label="Restaurantes">
-                                        {costCenters.filter(c => c.type === 'RESTAURANT').map(c => (
-                                            <option key={c.id} value={c.id}>{c.name}</option>
-                                        ))}
-                                    </optgroup>
+                                    {costCenters.filter(c => c.type === 'RESTAURANT').map(c => (
+                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                    ))}
                                 </select>
                             </div>
                         </div>

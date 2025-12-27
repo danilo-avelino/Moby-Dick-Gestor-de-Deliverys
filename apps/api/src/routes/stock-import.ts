@@ -33,12 +33,16 @@ export async function stockImportRoutes(fastify: FastifyInstance) {
                 - Total
             `,
             security: [{ bearerAuth: [] }],
-            consumes: ['multipart/form-data'],
         },
     }, async (request, reply) => {
+        console.log('📦 Stock Import Request');
+        console.log('Headers:', request.headers);
+        console.log('Is Multipart:', request.isMultipart());
+
         try {
             // Get the uploaded file
             const data = await request.file();
+            console.log('File data received:', data ? { filename: data.filename, mimetype: data.mimetype } : 'null');
 
             if (!data) {
                 const response: ApiResponse = {
@@ -102,11 +106,12 @@ export async function stockImportRoutes(fastify: FastifyInstance) {
 
             return reply.status(result.success ? 200 : 400).send(response);
         } catch (error: any) {
+            console.error('Stock Import Route Error:', error);
             const response: ApiResponse = {
                 success: false,
                 error: {
                     code: 'IMPORT_ERROR',
-                    message: error.message || 'Erro ao processar importação',
+                    message: `Debug: ${error.message || 'Erro desconhecido'} (Stack: ${error.stack?.substring(0, 100)})`,
                 },
             };
             return reply.status(500).send(response);

@@ -21,6 +21,8 @@ interface ScheduleState {
 
     isLoading: boolean;
     isSimulating: boolean;
+    error: string | null;
+    setError: (msg: string | null) => void;
 
     // Actions
     setMonth: (year: number, month: number) => void;
@@ -77,11 +79,14 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
         }
     },
 
+    error: null,
+    setError: (msg) => set({ error: msg }),
+
     simulate: async () => {
         const { year, month, selectedSectorId } = get();
         if (!selectedSectorId) return;
 
-        set({ isSimulating: true });
+        set({ isSimulating: true, error: null });
         try {
             const res = await api.post('/api/schedules/simulate', {
                 year,
@@ -94,8 +99,13 @@ export const useScheduleStore = create<ScheduleState>((set, get) => ({
                     coverageByDay: res.data.coverageByDay,
                     warnings: res.data.warnings,
                     score: res.data.score
-                }
+                },
+                error: null
             });
+        } catch (err: any) {
+            console.error(err);
+            const msg = err.response?.data?.error || 'Erro ao gerar escala. Verifique se há funcionários cadastrados.';
+            set({ error: msg, matrix: {}, stats: null });
         } finally {
             set({ isSimulating: false });
         }

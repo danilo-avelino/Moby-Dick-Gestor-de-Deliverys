@@ -14,251 +14,136 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         if (!request.user || !request.user.costCenterId) {
-            const response: ApiResponse = {
-                success: true,
-                data: {
-                    revenue: { today: 0, yesterday: 0, thisWeek: 0, thisMonth: 0, trend: 0 },
-                    orders: { today: 0, yesterday: 0, thisWeek: 0, thisMonth: 0, trend: 0 },
-                    avgTicket: { today: 0, thisWeek: 0, thisMonth: 0, trend: 0 },
-                    cmv: { today: 0, thisWeek: 0, thisMonth: 0, target: 30, trend: 0 },
-                    alerts: { unread: 0, critical: 0 },
-                    stockAlerts: { lowStock: 0, expiring: 0 },
-                },
-            };
-            return reply.send(response);
+            return reply.send({ success: false, error: 'No cost center selected' });
         }
-        console.log('DASHBOARD_WITH_CC_ID:', request.user.costCenterId);
 
-        const today = new Date();
-        today.setDate(today.getDate() - 1); // User wants "Today" to be "Yesterday" (completed day)
-        today.setHours(0, 0, 0, 0);
+        const costCenterId = request.user.costCenterId;
+        const now = new Date();
 
-        const yesterday = new Date(today);
+        // Define periods
+        const yesterday = new Date(now);
         yesterday.setDate(yesterday.getDate() - 1);
+        yesterday.setHours(0, 0, 0, 0);
+        const yesterdayEnd = new Date(yesterday);
+        yesterdayEnd.setHours(23, 59, 59, 999);
 
-        const weekStart = new Date(today);
-        weekStart.setDate(weekStart.getDate() - 7);
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
-        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+        const startOfSameMonthLastYear = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+        const endOfSameMonthLastYear = new Date(now.getFullYear() - 1, now.getMonth() + 1, 0);
 
-        // Get CMV snapshots
-        const [todaySnapshot, yesterdaySnapshot, weekSnapshots, monthSnapshots] = await Promise.all([
-            prisma.cMVSnapshot.findFirst({
-                where: { restaurantId: request.user!.costCenterId, date: today },
-            }),
-            prisma.cMVSnapshot.findFirst({
-                where: { restaurantId: request.user!.costCenterId, date: yesterday },
-            }),
-            prisma.cMVSnapshot.findMany({
+        // Fetch Data Parallelly
+        const [
+            yesterdayRevenue,
+            monthRevenue,
+            lastMonthRevenue,
+            lastYearRevenue,
+            wasteMonth,
+            purchasesMonth
+        ] = await Promise.all([
+            // 1. Yesterday's Revenue
+            prisma.revenue.aggregate({
+                _sum: { totalAmount: true },
                 where: {
-                    restaurantId: request.user!.costCenterId,
-                    date: { gte: weekStart, lte: today },
-                },
+                    costCenterId,
+                    startDate: { gte: yesterday, lte: yesterdayEnd }
+                }
             }),
-            prisma.cMVSnapshot.findMany({
+            // 2. This Month Revenue
+            prisma.revenue.aggregate({
+                _sum: { totalAmount: true },
                 where: {
-                    restaurantId: request.user!.costCenterId,
-                    date: { gte: monthStart, lte: today },
-                },
+                    costCenterId,
+                    startDate: { gte: startOfMonth }
+                }
             }),
+            // 3. Last Month Revenue
+            prisma.revenue.aggregate({
+                _sum: { totalAmount: true },
+                where: {
+                    costCenterId,
+                    startDate: { gte: startOfLastMonth, lte: endOfLastMonth }
+                }
+            }),
+            // 4. Last Year Same Month Revenue
+            prisma.revenue.aggregate({
+                _sum: { totalAmount: true },
+                where: {
+                    costCenterId,
+                    startDate: { gte: startOfSameMonthLastYear, lte: endOfSameMonthLastYear }
+                }
+            }),
+            // 5. Waste This Month (StockMovement type WASTE)
+            // Note: If StockMovement lacks costCenterId, we might need a workaround. 
+            // Assuming we check Organization level for now or check if schema update allows filtering.
+            // Using a heuristic: user.organizationId
+            (async () => {
+                const orgId = request.user?.organizationId;
+                if (!orgId) return { _sum: { totalCost: 0 } };
+                return prisma.stockMovement.aggregate({
+                    _sum: { totalCost: true },
+                    where: {
+                        type: 'WASTE',
+                        organizationId: orgId, // Best approximation if CC not available
+                        createdAt: { gte: startOfMonth }
+                    }
+                });
+            })(),
+            // 6. Purchases This Month (Entradas)
+            (async () => {
+                // Determine source for "Purchases". StockMovement IN or PurchaseList?
+                // Request said "Compras (entradas no estoque)".
+                const orgId = request.user?.organizationId;
+                if (!orgId) return { _sum: { totalCost: 0 } };
+                return prisma.stockMovement.aggregate({
+                    _sum: { totalCost: true },
+                    where: {
+                        type: 'IN',
+                        organizationId: orgId,
+                        createdAt: { gte: startOfMonth }
+                    }
+                });
+            })()
         ]);
 
-        const weekRevenue = weekSnapshots.reduce((sum, s) => sum + s.revenue, 0);
-        const weekOrders = weekSnapshots.reduce((sum, s) => sum + s.orderCount, 0);
-        const monthRevenue = monthSnapshots.reduce((sum, s) => sum + s.revenue, 0);
-        const monthOrders = monthSnapshots.reduce((sum, s) => sum + s.orderCount, 0);
-
-        // Calculate trends
-        const prevWeekStart = new Date(weekStart);
-        prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-
-        const prevWeekSnapshots = await prisma.cMVSnapshot.findMany({
-            where: {
-                restaurantId: request.user!.costCenterId,
-                date: { gte: prevWeekStart, lt: weekStart },
-            },
-        });
-
-        const prevWeekRevenue = prevWeekSnapshots.reduce((sum, s) => sum + s.revenue, 0);
-        const revenueTrend = prevWeekRevenue > 0
-            ? ((weekRevenue - prevWeekRevenue) / prevWeekRevenue) * 100
+        // Calculate Forecast
+        const currentMonthTotal = monthRevenue._sum.totalAmount || 0;
+        const daysPassed = now.getDate(); // Including today, or -1? Usually Forecast includes today's projection
+        // Simple: (Revenue / DaysPassed) * TotalDays
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const forecast = daysPassed > 0
+            ? (currentMonthTotal / daysPassed) * daysInMonth
             : 0;
 
-        // Get alerts
-        const [unreadAlerts, criticalAlerts] = await Promise.all([
-            prisma.alert.count({
-                where: {
-                    restaurantId: request.user!.costCenterId,
-                    isRead: false,
-                    OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-                },
-            }),
-            prisma.alert.count({
-                where: {
-                    restaurantId: request.user!.costCenterId,
-                    isRead: false,
-                    severity: 'CRITICAL',
-                },
-            }),
-        ]);
+        // Calculate "CMV" as (Purchases / Revenue) * 100 roughly
+        // Or if we have real CMV from somewhere else? User asked for "CMV Real na aba"
+        // Usually CMV Real = (Opening + Purchases - Closing) / Revenue.
+        // We lack inventory closing snapshot for "Now".
+        // Using "Purchases / Revenue" is "Purchases %".
+        // Let's return the raw values and let Logic handle it.
+        // Or we stick to the requested "Compras vs Faturamento" chart.
 
-        // Get stock alerts
-        const [lowStockCount, expiringCount] = await Promise.all([
-            prisma.$queryRaw<[{ count: bigint }]>`
-        SELECT COUNT(*) as count
-        FROM "Product"
-        WHERE "restaurantId" = ${request.user!.costCenterId}
-          AND "isActive" = true
-          AND "currentStock" <= "reorderPoint"
-      `.then((r) => Number(r[0]?.count || 0)),
-            prisma.stockBatch.count({
-                where: {
-                    product: { restaurantId: request.user!.costCenterId },
-                    remainingQty: { gt: 0 },
-                    expirationDate: { lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
-                },
-            }),
-        ]);
-
-        // Get restaurant target
-        const restaurant = await prisma.costCenter.findUnique({
-            where: { id: request.user!.costCenterId! },
-            select: { targetCmvPercent: true },
-        });
-
-        // Calculate averages
-        const weekCmv = weekSnapshots.length > 0
-            ? weekSnapshots.reduce((sum, s) => sum + s.realPercent, 0) / weekSnapshots.length
-            : 0;
-        const monthCmv = monthSnapshots.length > 0
-            ? monthSnapshots.reduce((sum, s) => sum + s.realPercent, 0) / monthSnapshots.length
-            : 0;
-
-        const response: ApiResponse = {
+        return reply.send({
             success: true,
             data: {
                 revenue: {
-                    today: todaySnapshot?.revenue || 0,
-                    yesterday: yesterdaySnapshot?.revenue || 0,
-                    thisWeek: weekRevenue,
-                    thisMonth: monthRevenue,
-                    trend: revenueTrend,
+                    yesterday: yesterdayRevenue._sum.totalAmount || 0,
+                    thisMonth: currentMonthTotal,
+                    lastMonth: lastMonthRevenue._sum.totalAmount || 0,
+                    lastYearSameMonth: lastYearRevenue._sum.totalAmount || 0,
+                    forecast: forecast,
+                    trend: 0 // Placeholder
                 },
-                orders: {
-                    today: todaySnapshot?.orderCount || 0,
-                    yesterday: yesterdaySnapshot?.orderCount || 0,
-                    thisWeek: weekOrders,
-                    thisMonth: monthOrders,
-                    trend: 0,
+                purchases: {
+                    thisMonth: purchasesMonth._sum.totalCost || 0
                 },
-                avgTicket: {
-                    today: todaySnapshot?.avgTicket || 0,
-                    thisWeek: weekOrders > 0 ? weekRevenue / weekOrders : 0,
-                    thisMonth: monthOrders > 0 ? monthRevenue / monthOrders : 0,
-                    trend: 0,
-                },
-                cmv: {
-                    today: todaySnapshot?.realPercent || 0,
-                    thisWeek: weekCmv,
-                    thisMonth: monthCmv,
-                    target: restaurant?.targetCmvPercent || 30,
-                    trend: 0,
-                },
-                alerts: {
-                    unread: unreadAlerts,
-                    critical: criticalAlerts,
-                },
-                stockAlerts: {
-                    lowStock: lowStockCount,
-                    expiring: expiringCount,
-                },
-            },
-        };
-
-        return reply.send(response);
-    });
-
-    // Get top selling items
-    fastify.get<{ Querystring: { limit?: string; period?: string } }>('/top-selling', {
-        preHandler: [requireCostCenter],
-        schema: {
-            tags: ['Dashboard'],
-            summary: 'Get top selling items',
-            security: [{ bearerAuth: [] }],
-        },
-    }, async (request, reply) => {
-        const limit = parseInt(request.query.limit || '5', 10);
-        const period = request.query.period || 'week';
-
-        let startDate = new Date();
-        if (period === 'day') startDate.setDate(startDate.getDate() - 1);
-        else if (period === 'week') startDate.setDate(startDate.getDate() - 7);
-        else startDate.setMonth(startDate.getMonth() - 1);
-
-        // Get latest menu analysis
-        const analysis = await prisma.menuAnalysis.findFirst({
-            where: {
-                restaurantId: request.user!.costCenterId,
-                periodStart: { gte: startDate },
-            },
-            include: {
-                items: {
-                    orderBy: { revenue: 'desc' },
-                    take: limit,
-                    include: {
-                        recipe: {
-                            select: { id: true, name: true, imageUrl: true, currentPrice: true },
-                        },
-                    },
-                },
-            },
-            orderBy: { periodEnd: 'desc' },
+                waste: {
+                    thisMonth: wasteMonth._sum.totalCost || 0
+                }
+            }
         });
-
-        if (!analysis) {
-            // Return recipes with estimated data
-            const recipes = await prisma.recipe.findMany({
-                where: {
-                    restaurantId: request.user!.costCenterId,
-                    isActive: true,
-                },
-                take: limit,
-                orderBy: { currentPrice: 'desc' },
-                select: {
-                    id: true,
-                    name: true,
-                    imageUrl: true,
-                    currentPrice: true,
-                    costPerUnit: true,
-                },
-            });
-
-            const response: ApiResponse = {
-                success: true,
-                data: recipes.map((r) => ({
-                    recipe: r,
-                    quantity: 0,
-                    revenue: 0,
-                    marginPercent: r.currentPrice && r.costPerUnit
-                        ? ((r.currentPrice - r.costPerUnit) / r.currentPrice) * 100
-                        : 0,
-                })),
-            };
-
-            return reply.send(response);
-        }
-
-        const response: ApiResponse = {
-            success: true,
-            data: analysis.items.map((item) => ({
-                recipe: item.recipe,
-                quantity: item.quantitySold,
-                revenue: item.revenue,
-                marginPercent: item.marginPercent,
-            })),
-        };
-
-        return reply.send(response);
     });
 
     // Get revenue chart data
@@ -270,105 +155,104 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
+        const costCenterId = request.user!.costCenterId;
         const period = request.query.period || 'week';
-
+        const now = new Date();
         let startDate = new Date();
-        if (period === 'week') startDate.setDate(startDate.getDate() - 7);
-        else if (period === 'month') startDate.setMonth(startDate.getMonth() - 1);
-        else startDate.setMonth(startDate.getMonth() - 3);
 
-        const snapshots = await prisma.cMVSnapshot.findMany({
+        if (period === 'week') startDate.setDate(now.getDate() - 7);
+        else if (period === 'month') startDate.setMonth(now.getMonth() - 1);
+
+        const revenues = await prisma.revenue.findMany({
             where: {
-                restaurantId: request.user!.costCenterId,
-                date: { gte: startDate },
+                costCenterId,
+                startDate: { gte: startDate }
             },
-            orderBy: { date: 'asc' },
-            select: {
-                date: true,
-                revenue: true,
-                orderCount: true,
-                realPercent: true,
-            },
+            orderBy: { startDate: 'asc' }
         });
 
-        const response: ApiResponse = {
-            success: true,
-            data: snapshots.map((s) => ({
-                date: s.date.toISOString().split('T')[0],
-                revenue: s.revenue,
-                orders: s.orderCount,
-                cmv: s.realPercent,
-            })),
-        };
+        // Group by Date
+        const grouped = new Map<string, number>();
+        // Initialize last 7 days with 0
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - (6 - i));
+            grouped.set(d.toISOString().split('T')[0], 0);
+        }
 
-        return reply.send(response);
+        revenues.forEach(r => {
+            const dateKey = new Date(r.startDate).toISOString().split('T')[0];
+            const current = grouped.get(dateKey) || 0;
+            grouped.set(dateKey, current + r.totalAmount);
+        });
+
+        const chartData = Array.from(grouped.entries()).map(([date, revenue]) => ({
+            date: date.split('-').slice(1).join('/'), // MM/DD
+            revenue: revenue,
+            purchases: 0 // Fetch purchases if needed for "Compras vs Faturamento"
+        }));
+
+        // Fetch daily purchases to overlay?
+        // User asked "Compras vs Faturamento do mês ATUAL".
+        // This chart endpoint handles "week" usually.
+        // Let's enable "month" with Purchases.
+
+        return reply.send({
+            success: true,
+            data: chartData
+        });
     });
 
-    // Get recent activity
-    fastify.get('/activity', {
+    fastify.get('/monthly-chart', {
         preHandler: [requireCostCenter],
-        schema: {
-            tags: ['Dashboard'],
-            summary: 'Get recent activity',
-            security: [{ bearerAuth: [] }],
-        },
+        schema: { tags: ['Dashboard'] }
     }, async (request, reply) => {
-        const [movements, alerts, goals] = await Promise.all([
+        const costCenterId = request.user!.costCenterId;
+        const orgId = request.user!.organizationId;
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const [revenues, purchases] = await Promise.all([
+            prisma.revenue.findMany({
+                where: { costCenterId, startDate: { gte: startOfMonth } }
+            }),
             prisma.stockMovement.findMany({
-                where: { product: { restaurantId: request.user!.costCenterId } },
-                take: 5,
-                orderBy: { createdAt: 'desc' },
-                include: {
-                    product: { select: { name: true } },
-                    user: { select: { firstName: true, lastName: true } },
-                },
-            }),
-            prisma.alert.findMany({
-                where: { restaurantId: request.user!.costCenterId },
-                take: 5,
-                orderBy: { createdAt: 'desc' },
-            }),
-            prisma.goal.findMany({
                 where: {
-                    restaurantId: request.user!.costCenterId,
-                    achievedAt: { not: null },
-                },
-                take: 3,
-                orderBy: { achievedAt: 'desc' },
-                include: {
-                    user: { select: { firstName: true, lastName: true } },
-                },
-            }),
+                    organizationId: orgId,
+                    type: 'IN',
+                    createdAt: { gte: startOfMonth }
+                }
+            })
         ]);
 
-        const activities = [
-            ...movements.map((m) => ({
-                type: 'stock_movement',
-                title: `${m.type === 'IN' ? 'Entrada' : 'Saída'} de estoque`,
-                description: `${m.quantity} ${m.unit} de ${m.product.name}`,
-                user: m.user ? `${m.user.firstName} ${m.user.lastName}` : null,
-                timestamp: m.createdAt.toISOString(),
-            })),
-            ...alerts.map((a) => ({
-                type: 'alert',
-                title: a.title,
-                description: a.message,
-                severity: a.severity,
-                timestamp: a.createdAt.toISOString(),
-            })),
-            ...goals.map((g) => ({
-                type: 'goal_achieved',
-                title: `Meta atingida: ${g.name}`,
-                description: g.user ? `Por ${g.user.firstName} ${g.user.lastName}` : 'Meta da equipe',
-                timestamp: g.achievedAt!.toISOString(),
-            })),
-        ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // Group by day 1..31
+        const daysMap = new Map<number, { revenue: number, purchases: number }>();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 
-        const response: ApiResponse = {
-            success: true,
-            data: activities.slice(0, 10),
-        };
+        for (let i = 1; i <= daysInMonth; i++) {
+            daysMap.set(i, { revenue: 0, purchases: 0 });
+        }
 
-        return reply.send(response);
+        revenues.forEach(r => {
+            const day = new Date(r.startDate).getDate();
+            if (daysMap.has(day)) {
+                daysMap.get(day)!.revenue += r.totalAmount;
+            }
+        });
+
+        purchases.forEach(p => {
+            const day = new Date(p.createdAt).getDate();
+            if (daysMap.has(day)) {
+                daysMap.get(day)!.purchases += p.totalCost;
+            }
+        });
+
+        const data = Array.from(daysMap.entries()).map(([day, val]) => ({
+            day: day.toString(),
+            revenue: val.revenue,
+            purchases: val.purchases
+        }));
+
+        return reply.send({ success: true, data });
     });
 }

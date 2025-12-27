@@ -4,7 +4,7 @@ import {
     LayoutDashboard, Package, Warehouse, TrendingUp, PieChart, BookOpen,
     Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
     MessageSquare, ClipboardList, ClipboardCheck, Apple, Users, ShoppingBag, CreditCard, History,
-    Building, RefreshCw, Calendar
+    Building, RefreshCw, Calendar, DollarSign
 } from 'lucide-react';
 import { useState, Fragment } from 'react';
 import { cn, getInitials } from '../lib/utils';
@@ -29,10 +29,11 @@ const navigation = [
     { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Indicadores', href: '/indicators', icon: Target, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+    { name: 'Faturamento', href: '/financial/invoicing', icon: DollarSign, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Integrações', href: '/integrations', icon: Plug, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Lista de compras', href: '/purchases', icon: ShoppingCart, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'NPS', href: '/nps', icon: MessageSquare, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
-    { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN] },
+    { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
 ];
 
 export default function Layout() {
@@ -80,7 +81,8 @@ export default function Layout() {
     const requestCount = requestStats?.pending || 0;
 
     const filteredNavigation = navigation.filter(item => {
-        if (!item.roles) return true;
+        // Always allow access if impersonating or if no roles defined
+        if (user?.impersonatedBy || !item.roles) return true;
         return item.roles.includes(user?.role as any);
     });
 

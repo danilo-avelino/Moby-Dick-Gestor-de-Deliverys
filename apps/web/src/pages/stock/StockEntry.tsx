@@ -58,7 +58,7 @@ export default function StockEntry() {
             productName: product.name,
             quantity: 1,
             unit: product.baseUnit,
-            costPerUnit: product.lastPurchasePrice || product.avgCost || 0,
+            costPerUnit: Number(product.lastPurchasePrice) || Number(product.avgCost) || 0,
         }]);
         setSelectedProduct('');
     };

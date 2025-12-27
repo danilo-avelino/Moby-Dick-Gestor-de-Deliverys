@@ -19,9 +19,18 @@ interface CategorySummary {
     percentage: number;
 }
 
+const wasteReasonMap: Record<string, string> = {
+    expired: 'Vencido',
+    spoiled: 'Estragado/Deteriorado',
+    damaged: 'Danificado',
+    preparation_error: 'Erro de Preparo',
+    contaminated: 'Contaminado',
+    other: 'Outro'
+};
+
 export default function Stock() {
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState<'overview' | 'movements' | 'waste' | 'expiring' | 'checklist'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'movements' | 'waste' | 'expiring'>('overview');
     const [search, setSearch] = useState('');
     const [showWasteModal, setShowWasteModal] = useState(false);
     const [showRequisitionModal, setShowRequisitionModal] = useState(false);
@@ -29,7 +38,10 @@ export default function Stock() {
     const [wasteProductType, setWasteProductType] = useState<'raw' | 'portioned' | null>(null);
     const [selectedProduct, setSelectedProduct] = useState('');
     const [wasteQuantity, setWasteQuantity] = useState('');
+
     const [wasteReason, setWasteReason] = useState('');
+    const [wasteNote, setWasteNote] = useState('');
+    const [deductStock, setDeductStock] = useState(true);
 
     const queryClient = useQueryClient();
 
@@ -54,11 +66,60 @@ export default function Stock() {
         refetchOnMount: 'always',
     });
 
+    const { data: wasteMovements } = useQuery({
+        queryKey: ['stock-movements-waste'],
+        queryFn: () => api.get('/api/stock/movements?limit=50&type=WASTE').then((r) => r.data.data),
+        staleTime: 10000,
+    });
+
+    const createMovementMutation = useMutation({
+        mutationFn: (data: any) => api.post('/api/stock/movements', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['stock-movements'] });
+            queryClient.invalidateQueries({ queryKey: ['stock-movements-waste'] });
+            queryClient.invalidateQueries({ queryKey: ['stock-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['products-list'] });
+            toast.success('Perda registrada com sucesso!');
+            setShowWasteModal(false);
+            resetWasteForm();
+            setActiveTab('waste');
+        },
+        onError: (error: any) => {
+            console.error('Error registering waste:', error);
+            toast.error('Erro ao registrar perda');
+        }
+    });
+
+    const resetWasteForm = () => {
+        setWasteProductType(null);
+        setSelectedProduct('');
+        setWasteQuantity('');
+        setWasteReason('');
+        setWasteNote('');
+        setDeductStock(true);
+    };
+
     // Query for category data
     const { data: categoryData } = useQuery({
         queryKey: ['stock-by-category'],
         queryFn: () => api.get('/api/stock/by-category').then((r) => r.data.data),
         staleTime: 30000,
+    });
+
+    // Query for products (raw ingredients)
+    const { data: productsData } = useQuery({
+        queryKey: ['products-list', 'active'],
+        queryFn: () => api.get('/api/products?limit=1000&isActive=true').then((r) => r.data.data),
+        enabled: wasteProductType === 'raw',
+        staleTime: 60000,
+    });
+
+    // Query for recipes (portioned items)
+    const { data: recipesData } = useQuery({
+        queryKey: ['recipes-list', 'active'],
+        queryFn: () => api.get('/api/recipes?limit=100&isActive=true').then((r) => r.data.data),
+        enabled: wasteProductType === 'portioned',
+        staleTime: 60000,
     });
 
     // Use real category data from API
@@ -76,7 +137,6 @@ export default function Stock() {
         { id: 'movements', label: 'Movimentações', icon: History },
         { id: 'waste', label: 'Desperdícios', icon: Trash2 },
         { id: 'expiring', label: 'Validade', icon: Calendar },
-        { id: 'checklist', label: 'Checklist', icon: ClipboardCheck },
     ];
 
 
@@ -183,7 +243,7 @@ export default function Stock() {
                                 </div>
                                 <div>
                                     <p className="text-sm text-gray-400">Perdas (mês)</p>
-                                    <p className="text-xl font-bold text-red-400">{formatCurrency(0)}</p>
+                                    <p className="text-xl font-bold text-red-400">{formatCurrency(summary?.monthWaste || 0)}</p>
                                 </div>
                             </div>
                         </div>
@@ -365,7 +425,7 @@ export default function Stock() {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-center">
                                 <p className="text-sm text-gray-400 mb-1">Perdas este mês</p>
-                                <p className="text-2xl font-bold text-red-400">{formatCurrency(wasteLog.reduce((a, w) => a + w.value, 0))}</p>
+                                <p className="text-2xl font-bold text-red-400">{formatCurrency(summary?.monthWaste || 0)}</p>
                             </div>
                             <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-center">
                                 <p className="text-sm text-gray-400 mb-1">Principal causa</p>
@@ -373,7 +433,7 @@ export default function Stock() {
                             </div>
                             <div className="p-4 rounded-xl bg-primary-500/10 border border-primary-500/20 text-center">
                                 <p className="text-sm text-gray-400 mb-1">Itens perdidos</p>
-                                <p className="text-2xl font-bold text-white">{wasteLog.length}</p>
+                                <p className="text-2xl font-bold text-white">{wasteMovements?.pagination?.total || 0}</p>
                             </div>
                         </div>
 
@@ -385,24 +445,38 @@ export default function Stock() {
                                         <th>Produto</th>
                                         <th>Quantidade</th>
                                         <th>Motivo</th>
-                                        <th>Valor</th>
+                                        <th>Observação</th>
+                                        <th>Custo</th>
                                         <th>Data</th>
+                                        <th>Usuário</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {wasteLog.map((w) => (
-                                        <tr key={w.id}>
-                                            <td className="font-medium text-white">{w.product}</td>
-                                            <td>{w.quantity} {w.unit}</td>
-                                            <td>
-                                                <span className={`badge ${w.reason === 'Vencido' ? 'badge-danger' : 'badge-warning'}`}>
-                                                    {w.reason}
-                                                </span>
-                                            </td>
-                                            <td className="text-red-400">-{formatCurrency(w.value)}</td>
-                                            <td className="text-gray-400">{w.date}</td>
-                                        </tr>
-                                    ))}
+                                    {(wasteMovements?.data || []).map((w: any) => {
+                                        const reasonKey = w.notes?.split(' - ')[0] || '';
+                                        // Try to find translation, or use the key itself (handles both 'expired' and 'Vencido')
+                                        const displayReason = wasteReasonMap[reasonKey] || reasonKey;
+                                        const noteRest = w.notes?.split(' - ').slice(1).join(' - ');
+                                        const displayNote = noteRest ? `${displayReason} - ${noteRest}` : displayReason;
+
+                                        return (
+                                            <tr key={w.id}>
+                                                <td className="font-medium text-white">{w.product?.name}</td>
+                                                <td>{formatNumber(w.quantity)} {w.unit}</td>
+                                                <td>
+                                                    <span className="badge badge-warning">
+                                                        {displayReason}
+                                                    </span>
+                                                </td>
+                                                <td className="text-gray-400 text-sm max-w-[200px] truncate" title={displayNote}>
+                                                    {displayNote}
+                                                </td>
+                                                <td className="text-red-400">-{formatCurrency(w.totalCost)}</td>
+                                                <td className="text-gray-400">{formatDate(w.createdAt)}</td>
+                                                <td className="text-gray-400">{w.user?.firstName}</td>
+                                            </tr>
+                                        )
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -456,43 +530,7 @@ export default function Stock() {
                 </div>
             )}
 
-            {/* Checklist Tab */}
-            {activeTab === 'checklist' && (
-                <div className="glass-card">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                            <ClipboardCheck className="w-5 h-5 text-blue-400" /> Checklist Diário
-                        </h3>
-                        <button className="btn-ghost">
-                            <Plus className="w-4 h-4" /> Nova Tarefa
-                        </button>
-                    </div>
 
-                    <div className="space-y-3">
-                        {dailyChecklist.map((item) => (
-                            <div key={item.id} className={`p-4 rounded-xl border flex items-center gap-4 ${item.completed ? 'bg-green-500/5 border-green-500/20' : 'bg-white/5 border-white/10'
-                                }`}>
-                                <button className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${item.completed
-                                    ? 'bg-green-500 border-green-500'
-                                    : 'border-gray-500 hover:border-primary-400'
-                                    }`}>
-                                    {item.completed && (
-                                        <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                </button>
-                                <div className="flex-1">
-                                    <p className={`font-medium ${item.completed ? 'text-gray-400 line-through' : 'text-white'}`}>
-                                        {item.task}
-                                    </p>
-                                    <p className="text-sm text-gray-500">Programado para {item.time}</p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
 
             {/* Waste Registration Modal */}
             {showWasteModal && (
@@ -505,10 +543,7 @@ export default function Stock() {
                             <button
                                 onClick={() => {
                                     setShowWasteModal(false);
-                                    setWasteProductType(null);
-                                    setSelectedProduct('');
-                                    setWasteQuantity('');
-                                    setWasteReason('');
+                                    resetWasteForm();
                                 }}
                                 className="p-2 hover:bg-white/10 rounded-lg"
                             >
@@ -554,7 +589,10 @@ export default function Stock() {
                             <div className="space-y-4">
                                 <div className="flex items-center gap-2 mb-4">
                                     <button
-                                        onClick={() => setWasteProductType(null)}
+                                        onClick={() => {
+                                            setWasteProductType(null);
+                                            setSelectedProduct('');
+                                        }}
                                         className="btn-ghost text-sm"
                                     >
                                         ← Voltar
@@ -575,19 +613,13 @@ export default function Stock() {
                                     >
                                         <option value="">Selecione...</option>
                                         {wasteProductType === 'raw' ? (
-                                            <>
-                                                <option value="1">Carne Moída</option>
-                                                <option value="2">Queijo Mussarela</option>
-                                                <option value="3">Tomate</option>
-                                                <option value="4">Alface</option>
-                                            </>
+                                            productsData?.data?.map((p: any) => (
+                                                <option key={p.id} value={p.id}>{p.name} ({p.baseUnit})</option>
+                                            ))
                                         ) : (
-                                            <>
-                                                <option value="10">Hambúrguer Artesanal</option>
-                                                <option value="11">Porção Batata Frita</option>
-                                                <option value="12">Pizza Margherita</option>
-                                                <option value="13">Sanduíche Natural</option>
-                                            </>
+                                            recipesData?.data?.map((r: any) => (
+                                                <option key={r.id} value={r.id}>{r.name} ({r.yieldUnit})</option>
+                                            ))
                                         )}
                                     </select>
                                 </div>
@@ -629,17 +661,29 @@ export default function Stock() {
                                     <textarea
                                         className="input min-h-[80px]"
                                         placeholder="Detalhes adicionais sobre a perda..."
+                                        value={wasteNote}
+                                        onChange={(e) => setWasteNote(e.target.value)}
                                     />
+                                </div>
+
+                                <div className="flex items-center gap-2 p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                                    <input
+                                        type="checkbox"
+                                        id="deductStock"
+                                        checked={deductStock}
+                                        onChange={(e) => setDeductStock(e.target.checked)}
+                                        className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-primary-500 focus:ring-primary-500"
+                                    />
+                                    <label htmlFor="deductStock" className="text-sm text-gray-300 cursor-pointer select-none">
+                                        Dar saída do estoque (deduzir quantidade)
+                                    </label>
                                 </div>
 
                                 <div className="flex gap-3 pt-4 border-t border-white/10">
                                     <button
                                         onClick={() => {
                                             setShowWasteModal(false);
-                                            setWasteProductType(null);
-                                            setSelectedProduct('');
-                                            setWasteQuantity('');
-                                            setWasteReason('');
+                                            resetWasteForm();
                                         }}
                                         className="btn-ghost flex-1"
                                     >
@@ -651,18 +695,29 @@ export default function Stock() {
                                                 toast.error('Preencha todos os campos obrigatórios');
                                                 return;
                                             }
-                                            toast.success('Perda registrada com sucesso!');
-                                            setShowWasteModal(false);
-                                            setWasteProductType(null);
-                                            setSelectedProduct('');
-                                            setWasteQuantity('');
-                                            setWasteReason('');
-                                            setActiveTab('waste');
+
+                                            // Find selected product to get unit
+                                            const product = productsData?.data?.find((p: any) => p.id === selectedProduct)
+                                                || recipesData?.data?.find((r: any) => r.id === selectedProduct);
+
+                                            const unit = product?.baseUnit || product?.yieldUnit || 'un';
+
+                                            // Get readable reason
+                                            const readableReason = wasteReasonMap[wasteReason] || wasteReason;
+
+                                            createMovementMutation.mutate({
+                                                productId: selectedProduct,
+                                                type: 'WASTE',
+                                                quantity: Number(wasteQuantity),
+                                                unit: unit,
+                                                notes: `${readableReason}${wasteNote ? ` - ${wasteNote}` : ''}`,
+                                                deductStock
+                                            });
                                         }}
                                         className="btn-primary flex-1"
-                                        disabled={!selectedProduct || !wasteQuantity || !wasteReason}
+                                        disabled={!selectedProduct || !wasteQuantity || !wasteReason || createMovementMutation.isPending}
                                     >
-                                        Registrar Perda
+                                        {createMovementMutation.isPending ? 'Registrando...' : 'Registrar Perda'}
                                     </button>
                                 </div>
                             </div>

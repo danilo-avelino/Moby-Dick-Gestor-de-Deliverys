@@ -316,6 +316,32 @@ export async function scheduleRoutes(app: FastifyInstance) {
         if (!schedule) {
             return reply.status(404).send({ error: 'Schedule not found' });
         }
-        return schedule;
+
+        // Extract Employee IDs from all sector outputs
+        const employeeIds = new Set<string>();
+        for (const output of schedule.sectorOutputs) {
+            if (output.data && typeof output.data === 'object') {
+                Object.keys(output.data).forEach(key => employeeIds.add(key));
+            }
+        }
+
+        // Fetch Employee Details
+        const employees = await prisma.employee.findMany({
+            where: {
+                id: { in: Array.from(employeeIds) },
+                organizationId
+            },
+            select: { id: true, name: true }
+        });
+
+        const employeeMap = employees.reduce((acc, emp) => {
+            acc[emp.id] = emp;
+            return acc;
+        }, {} as Record<string, any>);
+
+        return {
+            ...schedule,
+            employees: employeeMap
+        };
     });
 }

@@ -216,6 +216,15 @@ export async function organizationRoutes(app: FastifyInstance) {
         slug: z.string().min(3).optional(),
         directorName: z.string().optional(),
         directorEmail: z.string().email().optional(),
+        // Address
+        street: z.string().optional(),
+        number: z.string().optional(),
+        neighborhood: z.string().optional(),
+        city: z.string().optional(),
+        state: z.string().optional(),
+        zipCode: z.string().optional(),
+        // Plan
+        plan: z.string().optional(),
     });
 
     app.put('/:id', {
@@ -233,7 +242,14 @@ export async function organizationRoutes(app: FastifyInstance) {
                     name: { type: 'string' },
                     slug: { type: 'string' },
                     directorName: { type: 'string' },
-                    directorEmail: { type: 'string' }
+                    directorEmail: { type: 'string' },
+                    street: { type: 'string' },
+                    number: { type: 'string' },
+                    neighborhood: { type: 'string' },
+                    city: { type: 'string' },
+                    state: { type: 'string' },
+                    zipCode: { type: 'string' },
+                    plan: { type: 'string' },
                 }
             }
         }
@@ -243,7 +259,10 @@ export async function organizationRoutes(app: FastifyInstance) {
 
         const org = await prisma.organization.findUnique({
             where: { id },
-            include: { users: { where: { role: 'DIRETOR' } } }
+            include: {
+                users: { where: { role: 'DIRETOR' } },
+                costCenters: { take: 1 } // Get primary cost center
+            }
         });
 
         if (!org) throw errors.notFound('Organization not found');
@@ -290,10 +309,41 @@ export async function organizationRoutes(app: FastifyInstance) {
                         where: { id: director.id },
                         data: dataToUpdate
                     });
-                } else {
-                    // Director missing? We could create one, but for now just warn/skip
-                    // Implementation choice: Skip if no director found, or maybe throw error?
-                    // Let's just skip updating director if none exists to avoid complex creation logic here.
+                }
+            }
+
+            // 3. Update CostCenter (Address & Plan)
+            const primaryCostCenter = org.costCenters[0];
+            if (primaryCostCenter) {
+                const costCenterUpdate: any = {};
+
+                // Address fields
+                if (body.street !== undefined) costCenterUpdate.street = body.street;
+                if (body.number !== undefined) costCenterUpdate.number = body.number;
+                if (body.neighborhood !== undefined) costCenterUpdate.neighborhood = body.neighborhood;
+                if (body.city !== undefined) costCenterUpdate.city = body.city;
+                if (body.state !== undefined) costCenterUpdate.state = body.state;
+                if (body.zipCode !== undefined) costCenterUpdate.zipCode = body.zipCode;
+
+                // Plan fields
+                if (body.plan !== undefined) {
+                    costCenterUpdate.plan = body.plan;
+                    // Reset or update expiration logic if needed, 
+                    // for now assuming manual plan change keeps existing expiration or sets it elsewhere?
+                    // Replicating creation logic: if switching to free_trial, set 30 days? 
+                    // Usually editing plan might mean upgrading so we might want to extend validity?
+                    // For simplicity, just updating the plan type enum string for now as per request.
+                    // If switching TO free_trial from something else, maybe reset expiration?
+                    if (body.plan === 'free_trial' && primaryCostCenter.plan !== 'free_trial') {
+                        costCenterUpdate.planExpiresAt = dayjs().add(30, 'days').toDate();
+                    }
+                }
+
+                if (Object.keys(costCenterUpdate).length > 0) {
+                    await tx.costCenter.update({
+                        where: { id: primaryCostCenter.id },
+                        data: costCenterUpdate
+                    });
                 }
             }
 

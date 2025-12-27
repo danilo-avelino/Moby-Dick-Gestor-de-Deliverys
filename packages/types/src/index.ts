@@ -234,6 +234,7 @@ export interface CreateProductRequest {
     description?: string;
     categoryId?: string;
     baseUnit: string;
+    lastPurchasePrice?: number;
     conversions?: Record<string, number>;
     reorderPoint?: number;
     manualReorderPoint?: number;

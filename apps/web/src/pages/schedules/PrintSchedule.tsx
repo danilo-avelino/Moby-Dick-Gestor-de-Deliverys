@@ -115,7 +115,9 @@ export default function PrintSchedule() {
                                         <tr key={userId}>
                                             {/* TODO: Resolve User Name from ID. For now using ID/Mock */}
                                             <td className="border border-gray-400 p-2 font-medium truncate max-w-[150px]">
-                                                {userId.split('-')[0]}
+                                                {(schedule.employees && schedule.employees[userId])
+                                                    ? schedule.employees[userId].name
+                                                    : userId}
                                             </td>
                                             {daysArray.map(d => {
                                                 const val = days[d] || '';

@@ -136,7 +136,7 @@ function EmployeeModal({ sector, onClose, onSubmit, employee }: { sector: any, o
 }
 
 export function EmployeeList() {
-    const { sectors, selectedSectorId, selectSector } = useScheduleStore();
+    const { sectors, selectedSectorId, selectSector, fetchSectors } = useScheduleStore();
     const [employees, setEmployees] = useState<any[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState<any>(null);
@@ -144,6 +144,8 @@ export function EmployeeList() {
     const fetchEmployees = async () => {
         if (!selectedSectorId) return;
         try {
+            // We also refresh sectors to keep global store in sync for ScheduleView
+            fetchSectors();
             const res = await api.get('/api/schedules/employees', { params: { sectorId: selectedSectorId } });
             setEmployees(res.data);
         } catch (error) {

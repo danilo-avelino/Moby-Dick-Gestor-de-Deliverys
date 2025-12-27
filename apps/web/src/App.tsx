@@ -22,6 +22,7 @@ import Menu from './pages/menu/Menu';
 import Alerts from './pages/alerts/Alerts';
 // import Goals from './pages/goals/Goals'; // Deprecated
 import IndicatorsDashboard from './pages/indicators/IndicatorsDashboard'; // New
+import Invoicing from './pages/financial/Invoicing';
 import Integrations from './pages/integrations/Integrations';
 import IntegrationInspector from './pages/integrations/IntegrationInspector';
 import Purchases from './pages/purchases/Purchases';
@@ -118,6 +119,7 @@ export default function App() {
                     <Route path="alerts" element={<Alerts />} />
                     {/* <Route path="goals" element={<Goals />} /> */}
                     <Route path="indicators" element={<IndicatorsDashboard />} />
+                    <Route path="financial/invoicing" element={<Invoicing />} />
                     <Route path="integrations" element={<Integrations />} />
                     <Route path="purchases" element={<PurchaseLists />} />
                     <Route path="purchases/:id" element={<PurchaseListDetail />} />

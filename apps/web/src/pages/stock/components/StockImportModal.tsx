@@ -39,7 +39,12 @@ export default function StockImportModal({ isOpen, onClose }: StockImportModalPr
             formData.append('file', file);
             formData.append('sobrescreverEstoqueAtual', sobrescreverEstoque.toString());
 
-            const response = await api.post('/api/stock/import', formData);
+            const response = await api.post('/api/stock/import', formData, {
+                headers: {
+                    // @ts-ignore
+                    'Content-Type': undefined,
+                },
+            });
             return response.data;
         },
         onSuccess: (data) => {

@@ -3,7 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
-  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-musl", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -51,6 +51,7 @@ model Organization {
   impersonationLogs AdminImpersonationLog[]
   impersonationSessions AdminImpersonationSession[]
   events          Event[]
+  scheduleSectors ScheduleSector[]
 
   // RLS Back-relations
   productCategories ProductCategory[]
@@ -143,9 +144,15 @@ model User {
   // Relations
   sessions          Session[]
   stockMovements    StockMovement[]
-  portioningBatches PortioningBatch[]
+  operatedBatches   PortioningBatch[] @relation("BatchOperator")
   alerts            Alert[]
-  goals             Goal[]
+  // Indicators
+  ownedIndicators   Indicator[] @relation("IndicatorOwner")
+  indicatorAccess   IndicatorAccess[]
+  indicatorComments IndicatorComment[]
+  
+  // Deprecated/Legacy
+  // goals             Goal[] // Renamed to Indicator
   achievements      Achievement[]
   auditLogs         AuditLog[]
   
@@ -163,6 +170,7 @@ model User {
   
   // Purchase List Relations
   purchaseListsCreated      PurchaseList[]       @relation("PurchaseListCreator")
+  revenuesCreated           Revenue[]            @relation("RevenueCreator")
   purchaseListItemsConfirmed PurchaseListItem[]  @relation("PurchaseListItemConfirmer")
 
   @@index([email])
@@ -242,7 +250,7 @@ model CostCenter {
   cmvSnapshots    CMVSnapshot[]
   alerts          Alert[]
   alertRules      AlertRule[]
-  goals           Goal[]
+  indicators      Indicator[]
   menuAnalyses    MenuAnalysis[]
   portioningProcesses PortioningProcess[]
   purchaseSuggestions PurchaseSuggestion[]
@@ -262,6 +270,9 @@ model CostCenter {
   // Purchase List Relations
   purchaseLists   PurchaseList[]
   purchaseConfig  PurchaseConfig?
+
+  revenues        Revenue[]
+  menuCategories  MenuCategory[]
   
   @@map("cost_centers")
   @@index([cnpj])
@@ -326,14 +337,24 @@ enum IntegrationPlatform {
   BLING
   TINY
   CUSTOM_API
+  FOODY
+  SAIPOS
+  AGILIZONE
+  NEEMO
+  ANOTAAI
+  CONSUMER
+  CARDAPIO_WEB
+  FOOD99
 }
 
 enum IntegrationStatus {
-  ACTIVE
-  INACTIVE
-  ERROR
-  PENDING_AUTH
-  SYNCING
+  CONFIGURED
+  CONNECTED
+  INGESTING
+  DEGRADED
+  STOPPED
+  // ERROR - Mapped to STOPPED or DEGRADED
+  // PENDING_AUTH - Mapped to CONFIGURED
 }
 
 model Integration {
@@ -345,7 +366,7 @@ model Integration {
   
   platform        IntegrationPlatform
   name            String
-  status          IntegrationStatus   @default(PENDING_AUTH)
+  status          IntegrationStatus   @default(CONFIGURED)
   
   // Credentials (encrypted)
   credentials     Json?
@@ -376,6 +397,7 @@ model Integration {
   
   // Relations
   syncLogs        SyncLog[]
+  inboxItems      IntegrationInbox[]
   
   @@unique([costCenterId, platform, externalId])
   @@index([costCenterId])
@@ -420,6 +442,65 @@ model SyncLog {
   @@index([integrationId])
   @@index([status])
   @@index([startedAt])
+}
+
+enum InboxStatus {
+    PENDING
+    PROCESSED
+    FAILED
+    IGNORED
+}
+
+model IntegrationInbox {
+    id              String          @id @default(cuid())
+    integrationId   String
+    integration     Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+    externalId      String?         // Order ID, Delivery ID
+    correlationId   String?         // Tracing ID
+
+    source          String          // "ifood", "foody", "webhook"...
+    event           String?         // "order.created", "delivery.update"
+
+    rawPayload      Json
+    parsedPayload   Json?
+
+    status          InboxStatus     @default(PENDING)
+    errorMessage    String?
+    retriesCount    Int             @default(0)
+
+    receivedAt      DateTime        @default(now())
+    processedAt     DateTime?
+
+    @@index([integrationId])
+    @@index([status])
+    @@index([externalId])
+    @@index([correlationId])
+}
+
+model WorkTimeOrder {
+    id              String          @id @default(cuid())
+    restaurantId    String
+    provider        String          // "FOODY"
+    providerOrderId String
+
+    orderDate       DateTime
+    arrivedAt       DateTime
+    readyAt         DateTime?
+    pickedUpAt      DateTime?
+    deliveredAt     DateTime?
+
+    shift           String          // "DAY", "NIGHT"
+    workday         DateTime        @db.Date
+
+    rawPayload      Json?
+
+    createdAt       DateTime        @default(now())
+    updatedAt       DateTime        @updatedAt
+
+    @@unique([restaurantId, provider, providerOrderId])
+    @@index([restaurantId, workday, shift])
+    @@index([provider, orderDate])
 }
 
 // ==========================================
@@ -567,6 +648,7 @@ model Supplier {
   // Relations
   products        Product[]
   movements       StockMovement[]
+  portioningBatches PortioningBatch[] @relation("BatchSupplier")
   
   @@index([organizationId])
 }
@@ -728,6 +810,8 @@ model Recipe {
   yieldQuantity   Float             @default(1)
   yieldUnit       String            @default("un")
   
+  menuItems       MenuItem[]
+  
   // Cost
   currentCost     Float             @default(0)
   costPerUnit     Float             @default(0)
@@ -765,7 +849,6 @@ model Recipe {
   ingredients     RecipeIngredient[]
   pricingSuggestions PricingSuggestion[]
   itemPerformances ItemPerformance[]
-  portioningBatches PortioningBatch[]
   usedAsIngredient RecipeIngredient[] @relation("SubRecipe")
   
   @@index([recipeCategoryId])
@@ -865,6 +948,9 @@ model PortioningProcess {
   rawProduct      Product           @relation("RawProduct", fields: [rawProductId], references: [id], onDelete: Cascade)
   
   // Output
+  outputs         PortioningProcessOutput[]
+  
+  // Legacy single output (deprecated but kept for compatibility)
   outputProductId String?
   outputProduct   Product?          @relation("OutputProduct", fields: [outputProductId], references: [id], onDelete: SetNull)
   
@@ -884,7 +970,7 @@ model PortioningProcess {
   updatedAt       DateTime          @updatedAt
   
   // Relations
-  // batches         PortioningBatch[] // Deprecated relationship in favor of Recipe? Keeping for now.
+  batches         PortioningBatch[]
   
   organizationId  String?
   
@@ -892,41 +978,78 @@ model PortioningProcess {
   @@index([organizationId])
 }
 
-model PortioningBatch {
-  id                  String            @id @default(cuid())
-  
-  // Optional link to old Process model (deprecated?)
-  processId           String?
-  // process             PortioningProcess? @relation(fields: [processId], references: [id], onDelete: SetNull)
-  
-  // New: Link to Recipe (Type: PORTIONING)
-  recipeId            String?
-  recipe              Recipe?           @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+model PortioningProcessOutput {
+  id              String            @id @default(cuid())
+  processId       String
+  process         PortioningProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
 
-  // Input
-  rawQuantity         Float
-  rawUnit             String
-  rawCost             Float
+  name            String
+  isActive        Boolean           @default(true)
   
-  // Output
-  outputQuantity      Float
-  outputUnit          String
-  outputCostPerUnit   Float
+  // Standard Weight Configuration
+  useStandardWeight Boolean       @default(false)
+  standardWeight    Float?
+  unit              String          @default("g")
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([processId])
+}
+
+model PortioningBatch {
+  id              String            @id @default(cuid())
   
-  // Actual vs expected
-  actualYieldPercent  Float
-  actualWastePercent  Float
+  processId       String
+  process         PortioningProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  // Inputs
+  initialWeight   Float
+  initialUnit     String            @default("kg")
   
-  // Who and when
-  processedAt         DateTime          @default(now())
-  processedById       String?
-  processedBy         User?             @relation(fields: [processedById], references: [id], onDelete: SetNull)
+  // Who/Where
+  operatorId      String
+  operator        User              @relation("BatchOperator", fields: [operatorId], references: [id])
   
-  notes               String?
+  supplierId      String?
+  supplier        Supplier?         @relation("BatchSupplier", fields: [supplierId], references: [id])
+  
+  // Outcomes
+  finalWeight     Float
+  percentYield    Float
+  accuracy        Float
+  
+  // Base Weight logic
+  portionCount    Int?
+  portionWeight   Float?
+  
+  // Relations
+  outputs         PortioningBatchOutput[]
+  
+  costCenterId    String?
+  organizationId  String?
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
   
   @@index([processId])
-  @@index([recipeId])
-  @@index([processedAt])
+  @@index([operatorId])
+  @@index([supplierId])
+  @@index([createdAt])
+}
+
+model PortioningBatchOutput {
+  id              String            @id @default(cuid())
+  batchId         String
+  batch           PortioningBatch   @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  
+  name            String
+  actualWeight    Float
+  unit            String            @default("g")
+  
+  createdAt       DateTime          @default(now())
+  
+  @@index([batchId])
 }
 
 // ==========================================
@@ -1241,9 +1364,11 @@ enum GoalType {
   ITEMS_SOLD
   SPECIFIC_PRODUCT
   WASTE_REDUCTION
+  STOCK_ACCURACY
 }
 
-enum GoalPeriod {
+
+enum IndicatorCycle {
   DAILY
   WEEKLY
   MONTHLY
@@ -1251,30 +1376,37 @@ enum GoalPeriod {
   CUSTOM
 }
 
-model Goal {
+model Indicator {
   id              String      @id @default(cuid())
   costCenterId    String
   costCenter      CostCenter  @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
   
-  // Target
-  userId          String?
-  user            User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  teamId          String?
+  // Target / Responsibility
+  ownerId         String?     // Responsible User
+  owner           User?       @relation("IndicatorOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   
-  // Goal definition
-  type            GoalType
+  // Legacy Goal Owner (keeping for migration safety if needed, or remove if unused)
+  // userId          String?
+  // user            User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // teamId          String?
+  
+  // Definition
+  type            GoalType    // Keep enum name for now or rename to IndicatorType later if needed
   name            String
   description     String?
   
   targetValue     Float
   currentValue    Float       @default(0)
   
-  // Period
-  period          GoalPeriod
+  // Cycle / Period
+  cycle           IndicatorCycle @default(MONTHLY)
   periodStart     DateTime
   periodEnd       DateTime
   
-  // Reward
+  // Settings
+  isDeveloping    Boolean     @default(false)
+  
+  // Reward (Gamification legacy)
   rewardType      String?
   rewardValue     String?
   rewardPoints    Int         @default(0)
@@ -1286,9 +1418,62 @@ model Goal {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   
+  // Relations
+  results         IndicatorResult[]
+  access          IndicatorAccess[]
+  comments        IndicatorComment[]
+  
+  @@map("goals")
   @@index([costCenterId])
-  @@index([userId])
+  @@index([ownerId])
   @@index([periodStart, periodEnd])
+}
+
+model IndicatorResult {
+  id              String      @id @default(cuid())
+  indicatorId     String
+  indicator       Indicator   @relation(fields: [indicatorId], references: [id], onDelete: Cascade)
+  
+  value           Float
+  targetSnapshot  Float?      // Target at the time of recording
+  date            DateTime    @default(now()) // When this result was recorded
+  
+  createdAt       DateTime    @default(now())
+  
+  @@index([indicatorId])
+  @@index([date])
+}
+
+model IndicatorAccess {
+  id              String      @id @default(cuid())
+  indicatorId     String
+  indicator       Indicator   @relation(fields: [indicatorId], references: [id], onDelete: Cascade)
+  
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime    @default(now())
+  
+  @@unique([indicatorId, userId])
+  @@index([indicatorId])
+  @@index([userId])
+}
+
+model IndicatorComment {
+  id              String      @id @default(cuid())
+  indicatorId     String
+  indicator       Indicator   @relation(fields: [indicatorId], references: [id], onDelete: Cascade)
+  
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  message         String
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt // Allow edits?
+  
+  @@index([indicatorId])
+  @@index([userId])
 }
 
 enum BadgeCategory {
@@ -2139,6 +2324,144 @@ model WebhookLog {
 }
 
 // ==========================================
+// SCHEDULES (Escalas) - Phase 2-3
+// ==========================================
+
+model ScheduleSector {
+  id              String      @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name            String
+  isActive        Boolean     @default(true)
+  numberOfShifts  Int         @default(1)
+
+  // JSON Configuration
+  minStaffByWeekday Json?    // { "0": 2, "1": 3 ... }
+  maxStaffByWeekday Json?
+
+  employees       ScheduleEmployee[]
+  sectorOutputs   ScheduleSectorOutput[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([organizationId])
+}
+
+model ScheduleEmployee {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  sectorId        String
+  sector          ScheduleSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+
+  name            String
+  
+  // Contracts / Preferences
+  scheduleType            String?       // "12x36" | "6x1" (Using String for flexibility or could be Enum)
+  shift                   String?       // e.g., "Day", "Night", "1", "2"
+  extraDaysOffPerMonth    Int?          // For 6x1
+  
+  workDaysPerWeek         Int
+  extraDaysOffDefault     Int
+  extraDaysOffOverride    Int?
+  
+  weeklyOffPreferenceMain Json? // [0, 6]
+  weeklyOffPreferenceExtra Json? 
+  unavailableWeekdays     Json?
+  
+  fixedOffDates           Json? // ISO Dates
+  fixedWorkDates          Json?
+  
+  maxConsecutiveWorkDays  Int?
+  priorityScore           Int   @default(0)
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([organizationId])
+  @@index([sectorId])
+}
+
+model ScheduleMonthConfig {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  year            Int
+  month           Int
+  
+  teamExtraDaysOff        Int   @default(1)
+  maxExtraOffPerDayOrg    Int?
+  maxExtraOffPerDayPerSector Int?
+  
+  blockedDates            Json?
+  preferredExtraOffDates  Json?
+
+  createdById     String
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([organizationId, year, month])
+}
+
+model Schedule {
+  id              String      @id @default(cuid())
+  organizationId  String
+  
+  year            Int
+  month           Int
+  
+  status          String      // DRAFT, FINAL
+  createdById     String
+  
+  sectorOutputs   ScheduleSectorOutput[]
+  changes         ScheduleChange[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([organizationId, year, month])
+}
+
+model ScheduleSectorOutput {
+  id              String      @id @default(cuid())
+  
+  scheduleId      String
+  schedule        Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  sectorId        String
+  sector          ScheduleSector @relation(fields: [sectorId], references: [id], onDelete: Cascade)
+  
+  data            Json        // The Matrix { userId: { 1: 'T', 2: 'F' } }
+  coverageByDay   Json
+  warnings        Json
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([scheduleId, sectorId])
+}
+
+model ScheduleChange {
+  id              String      @id @default(cuid())
+  scheduleId      String
+  schedule        Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  
+  userId          String      // Actor
+  targetUserId    String      // Employee changed
+  day             Int
+  oldValue        String
+  newValue        String
+  reason          String?
+  
+  createdAt       DateTime    @default(now())
+  
+  @@index([scheduleId])
+}
+
+// ==========================================
 // MENU / CARDÁPIO (Phase 4)
 // ==========================================
 
@@ -2276,3 +2599,23 @@ model MenuOption {
   
   @@index([optionGroupId])
 }
+
+model Revenue {
+  id              String   @id @default(cuid())
+  costCenterId    String
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  totalAmount     Float
+  createdByUserId String
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  costCenter      CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
+  createdByUser   User       @relation("RevenueCreator", fields: [createdByUserId], references: [id])
+
+  @@index([costCenterId, startDate, endDate])
+  @@map("revenues")
+}
+
+

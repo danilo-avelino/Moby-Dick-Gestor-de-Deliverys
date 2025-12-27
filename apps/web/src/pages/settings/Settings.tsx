@@ -9,7 +9,9 @@ import UserManagement from '../admin/UserManagement';
 import { RestaurantManagement } from './RestaurantManagement';
 
 // Sections
-type SettingsSection = 'general' | 'users' | 'restaurants';
+type SettingsSection = 'general' | 'users' | 'restaurants' | 'backup';
+
+import { BackupSettings } from './BackupSettings';
 
 export default function Settings() {
     const { user } = useAuthStore();
@@ -43,8 +45,15 @@ export default function Settings() {
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeSection === 'restaurants' ? 'bg-primary-500/20 text-primary-400' : 'text-gray-400 hover:bg-white/5 hover:text-white'
                                 }`}
                         >
-                            <Building className="w-5 h-5" />
                             <span className="font-medium">Restaurantes</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveSection('backup')}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeSection === 'backup' ? 'bg-primary-500/20 text-primary-400' : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                                }`}
+                        >
+                            <SettingsIcon className="w-5 h-5" />
+                            <span className="font-medium">Backup & Dados</span>
                         </button>
                     </nav>
                 </div>
@@ -55,6 +64,7 @@ export default function Settings() {
                 {activeSection === 'general' && <GeneralSettings user={user} />}
                 {activeSection === 'users' && <UserManagement />}
                 {activeSection === 'restaurants' && <RestaurantManagement />}
+                {activeSection === 'backup' && <BackupSettings />}
             </main>
         </div>
     );
