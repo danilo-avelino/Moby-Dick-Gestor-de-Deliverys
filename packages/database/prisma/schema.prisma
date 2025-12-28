@@ -362,6 +362,7 @@ model Product {
   isRawMaterial             Boolean                    @default(true)
   externalId                String?
   imageUrl                  String?
+  isCmv                     Boolean                    @default(true)
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   consumptionAnomalies      ConsumptionAnomaly[]
@@ -483,6 +484,7 @@ model Recipe {
   name               String
   description        String?
   type               RecipeType          @default(FINAL_PRODUCT)
+  isComponent        Boolean             @default(false)
   status             RecipeStatus        @default(DRAFT)
   recipeCategoryId   String?
   productCategoryId  String?
@@ -571,6 +573,7 @@ model PortioningProcess {
   name            String
   description     String?
   rawProductId    String
+  quantityUsed    Float?
   outputProductId String?
   yieldPercent    Float                     @default(100)
   wastePercent    Float                     @default(0)
@@ -1776,6 +1779,10 @@ enum GoalType {
   ITEMS_SOLD
   SPECIFIC_PRODUCT
   WASTE_REDUCTION
+  STOCK_CMV
+  PURCHASING
+  RECIPE_COVERAGE
+  WASTE_PERCENT
   STOCK_ACCURACY
 }
 
@@ -1937,13 +1944,13 @@ model Revenue {
   startDate       DateTime @db.Date
   endDate         DateTime @db.Date
   totalAmount     Float
-  createdByUserId String
+  createdByUserId String?
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   costCenter      CostCenter @relation(fields: [costCenterId], references: [id], onDelete: Cascade)
-  createdByUser   User       @relation("RevenueCreator", fields: [createdByUserId], references: [id])
+  createdByUser   User?      @relation("RevenueCreator", fields: [createdByUserId], references: [id])
 
   @@index([costCenterId, startDate, endDate])
   @@map("revenues")

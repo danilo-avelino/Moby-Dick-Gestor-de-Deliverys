@@ -29,10 +29,10 @@ export default function ProductForm() {
     });
 
     const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({
-        defaultValues: product || { countsCMV: true }, // CMV true by default
+        defaultValues: product || { isCmv: true }, // CMV true by default
     });
 
-    const countsCMV = watch('countsCMV', product?.countsCMV ?? true);
+    const isCmv = watch('isCmv', product?.isCmv ?? true);
     const isPerishable = watch('isPerishable', product?.isPerishable ?? false);
 
     const deleteMutation = useMutation({
@@ -273,29 +273,29 @@ export default function ProductForm() {
 
                     <div className="space-y-4">
                         {/* CMV Toggle - DESTAQUE */}
-                        <div className={`p-4 rounded-xl border-2 transition-all ${countsCMV
+                        <div className={`p-4 rounded-xl border-2 transition-all ${isCmv
                             ? 'bg-green-500/10 border-green-500/30'
                             : 'bg-gray-800/50 border-gray-700/30'
                             }`}>
                             <div className="flex items-start gap-3">
                                 <input
                                     type="checkbox"
-                                    id="countsCMV"
-                                    {...register('countsCMV')}
-                                    defaultChecked={product?.countsCMV ?? true}
+                                    id="isCmv"
+                                    {...register('isCmv')}
+                                    defaultChecked={product?.isCmv ?? true}
                                     className="w-5 h-5 mt-0.5 rounded accent-green-500"
                                 />
                                 <div className="flex-1">
-                                    <label htmlFor="countsCMV" className="font-medium text-white cursor-pointer flex items-center gap-2">
+                                    <label htmlFor="isCmv" className="font-medium text-white cursor-pointer flex items-center gap-2">
                                         <DollarSign className="w-4 h-4 text-green-400" />
                                         Compõe o CMV (Custo de Mercadoria Vendida)
                                     </label>
                                     <p className="text-sm text-gray-400 mt-1">
-                                        {countsCMV
+                                        {isCmv
                                             ? "✓ Este produto será contabilizado no cálculo do CMV e custos das receitas"
                                             : "✗ Este produto NÃO afetará o CMV (útil para materiais de limpeza, embalagens, etc.)"}
                                     </p>
-                                    {countsCMV && (
+                                    {isCmv && (
                                         <div className="mt-2 p-2 rounded-lg bg-green-500/10 border border-green-500/20">
                                             <p className="text-xs text-green-300">
                                                 💡 <strong>Importante:</strong> Produtos que compõem o CMV afetam diretamente a rentabilidade do seu negócio

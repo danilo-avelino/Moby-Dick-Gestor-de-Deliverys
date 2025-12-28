@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { Plus, Search, Pencil, Trash2, Building, MapPin, Power, X } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Building, MapPin, Power, X, Link } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '../../lib/utils';
 
@@ -190,6 +190,17 @@ export function RestaurantManagement() {
                                         </td>
                                         <td className="p-4 text-right">
                                             <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button
+                                                    onClick={() => {
+                                                        const url = `${window.location.origin}/public/revenue/${r.id}`;
+                                                        navigator.clipboard.writeText(url);
+                                                        toast.success('Link copiado para a área de transferência!');
+                                                    }}
+                                                    className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                                    title="Copiar Link de Faturamento"
+                                                >
+                                                    <Link className="w-4 h-4" />
+                                                </button>
                                                 <button
                                                     onClick={() => handleEdit(r)}
                                                     className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"

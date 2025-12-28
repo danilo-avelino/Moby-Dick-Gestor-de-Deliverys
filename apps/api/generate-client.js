@@ -8,23 +8,12 @@ const buildSchemaPath = path.resolve(__dirname, 'schema.build.prisma');
 const schemaPath = path.resolve(__dirname, 'schema.prisma');
 
 try {
-    // 1. Force install correct versions locally
-    console.log('Forcing installation of Prisma 5.7.0...');
-    execSync('npm install prisma@5.7.0 @prisma/client@5.7.0 --no-save --no-audit', { stdio: 'inherit' });
+    // 4. Generate with local binary (relying on package.json dependencies installed by Cloud Build)
+    console.log('Running generation with local binary...');
+    const localPrisma = path.resolve(__dirname, 'node_modules', '.bin', 'prisma');
+    const prismaCmd = fs.existsSync(localPrisma) ? localPrisma : 'npx prisma'; // Fallback if binary not found directly
 
-    // 2. Read original schema
-    let schemaContent = fs.readFileSync(schemaPath, 'utf8');
-
-    // 3. Patch schema to use env variable (standard)
-    if (!schemaContent.includes('env("DATABASE_URL")')) {
-        schemaContent = schemaContent.replace(/url\s*=\s*".*"/, 'url = env("DATABASE_URL")');
-    }
-
-    fs.writeFileSync(buildSchemaPath, schemaContent);
-
-    // 4. Generate with npx (safer for path resolution)
-    console.log('Running generation with npx...');
-    execSync(`npx prisma generate --schema="${buildSchemaPath}"`, {
+    execSync(`${prismaCmd} generate --schema="${buildSchemaPath}"`, {
         stdio: 'inherit',
         env: {
             ...process.env,

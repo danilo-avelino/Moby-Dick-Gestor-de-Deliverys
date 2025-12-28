@@ -47,6 +47,7 @@ import { scheduleRoutes } from './routes/schedules';
 import { platformRoutes } from './routes/platform';
 import { backupRoutes } from './routes/backup';
 import { revenueRoutes } from './routes/revenues';
+import { publicRevenueRoutes } from './routes/public-revenue';
 import { errorHandler } from './middleware/error-handler';
 
 const PORT = parseInt(process.env.API_PORT || '3001', 10);
@@ -262,6 +263,7 @@ export async function buildServer() {
     await registerSafe(userRoutes, { prefix: '/users' });
     await registerSafe(backupRoutes, { prefix: '/backup' });
     await registerSafe(revenueRoutes, { prefix: '/revenues' });
+    await registerSafe(publicRevenueRoutes, { prefix: '/public/revenues' });
 
     // PDV Routes
     await registerSafe(pdvOrdersRoutes, { prefix: '/pdv/orders' });

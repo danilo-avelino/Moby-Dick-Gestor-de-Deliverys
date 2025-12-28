@@ -14,6 +14,7 @@ import InventoryDashboard from './pages/inventory/InventoryDashboard';
 import InventoryActiveSession from './pages/inventory/InventoryActiveSession';
 import InventoryCategoryCount from './pages/inventory/InventoryCategoryCount';
 import InventoryPublicCount from './pages/inventory/InventoryPublicCount';
+import PublicRevenue from './pages/public/PublicRevenue';
 import Recipes from './pages/recipes/Recipes';
 import RecipeForm from './pages/recipes/RecipeForm';
 import CMV from './pages/cmv/CMV';
@@ -83,6 +84,7 @@ export default function App() {
                 <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
                 <Route path="/inventory/share/:token/:categoryId" element={<InventoryPublicCount />} />
+                <Route path="/public/revenue/:costCenterId" element={<PublicRevenue />} />
 
                 {/* Platform Routes (Super Admin) */}
                 <Route path="/platform" element={<SuperAdminRoute><PlatformLayout /></SuperAdminRoute>}>

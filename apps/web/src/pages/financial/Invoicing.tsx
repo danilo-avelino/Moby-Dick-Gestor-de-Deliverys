@@ -31,10 +31,12 @@ const getCostCenterColor = (id: string, index: number) => {
 };
 
 // DASHBOARD COMPONENT
-function InvoicingDashboard() {
+function InvoicingDashboard({ currentDate }: { currentDate: Date }) {
     const { data: kpis } = useQuery({
-        queryKey: ['dashboard-kpis'],
-        queryFn: () => api.get('/api/dashboard/kpis').then(r => r.data.data)
+        queryKey: ['dashboard-kpis', format(currentDate, 'yyyy-MM-dd')],
+        queryFn: () => api.get('/api/dashboard/kpis', {
+            params: { date: currentDate.toISOString() }
+        }).then(r => r.data.data)
     });
 
     if (!kpis) return null;
@@ -219,7 +221,7 @@ export default function Invoicing() {
                 </div>
             </div>
 
-            <InvoicingDashboard />
+            <InvoicingDashboard currentDate={currentDate} />
 
             {/* Calendar Controls */}
             <div className="flex items-center justify-between bg-gray-900/50 p-4 rounded-xl border border-white/5 mb-4">

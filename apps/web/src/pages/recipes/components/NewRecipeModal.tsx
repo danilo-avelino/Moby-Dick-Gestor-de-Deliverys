@@ -8,11 +8,9 @@ interface NewRecipeModalProps {
     categories: Array<{ id: string; name: string }>;
     preSelectedCategoryId?: string;
 }
-
 const RECIPE_TYPES = [
     { id: 'FINAL_PRODUCT', label: 'Produto Final', icon: ChefHat, desc: 'Item de venda direta (Ex: Pizza, Prato, Drink)' },
     { id: 'TRANSFORMED_ITEM', label: 'Item Transformado', icon: Package, desc: 'Base para outras receitas (Ex: Molho, Massa)' },
-    { id: 'PORCIONAMENTO', label: 'Porcionamento', icon: Scale, desc: 'Processo de corte/divisão (Ex: Frango Desfiado)' },
     { id: 'COMBO', label: 'Combo', icon: Layers, desc: 'Combinação de produtos (Ex: Pizza + Refri)' },
 ];
 
@@ -70,8 +68,8 @@ export function NewRecipeModal({ onClose, categories, preSelectedCategoryId }: N
                                     key={t.id}
                                     onClick={() => setType(t.id)}
                                     className={`relative flex items-start p-4 rounded-xl border transition-all text-left group ${type === t.id
-                                            ? 'bg-primary-500/10 border-primary-500/50'
-                                            : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
+                                        ? 'bg-primary-500/10 border-primary-500/50'
+                                        : 'bg-white/5 border-white/5 hover:bg-white/10 hover:border-white/10'
                                         }`}
                                 >
                                     <div className={`p-2 rounded-lg mr-3 ${type === t.id ? 'bg-primary-500 text-white' : 'bg-white/10 text-gray-400 group-hover:text-white'}`}>

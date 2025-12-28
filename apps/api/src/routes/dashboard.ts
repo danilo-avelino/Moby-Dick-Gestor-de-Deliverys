@@ -1,24 +1,30 @@
-import { FastifyInstance } from 'fastify';
 import { prisma } from 'database';
 import { requireCostCenter } from '../middleware/auth';
-import type { ApiResponse } from 'types';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 export async function dashboardRoutes(fastify: FastifyInstance) {
     // Get dashboard KPIs
-    fastify.get('/kpis', {
+    fastify.get<{ Querystring: { date?: string } }>('/kpis', {
         preHandler: [requireCostCenter],
         schema: {
             tags: ['Dashboard'],
             summary: 'Get dashboard KPIs',
+            querystring: {
+                type: 'object',
+                properties: {
+                    date: { type: 'string', format: 'date-time' }
+                }
+            },
             security: [{ bearerAuth: [] }],
         },
-    }, async (request, reply) => {
+    }, async (request: FastifyRequest<{ Querystring: { date?: string } }>, reply: FastifyReply) => {
         if (!request.user || !request.user.costCenterId) {
             return reply.send({ success: false, error: 'No cost center selected' });
         }
 
         const costCenterId = request.user.costCenterId;
-        const now = new Date();
+        // Use provided date or default to now
+        const now = request.query.date ? new Date(request.query.date) : new Date();
 
         // Define periods
         const yesterday = new Date(now);
@@ -28,11 +34,17 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         yesterdayEnd.setHours(23, 59, 59, 999);
 
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        endOfMonth.setHours(23, 59, 59, 999);
+
+        // Ensure accurate month calculations
         const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+        endOfLastMonth.setHours(23, 59, 59, 999);
 
         const startOfSameMonthLastYear = new Date(now.getFullYear() - 1, now.getMonth(), 1);
         const endOfSameMonthLastYear = new Date(now.getFullYear() - 1, now.getMonth() + 1, 0);
+        endOfSameMonthLastYear.setHours(23, 59, 59, 999);
 
         // Fetch Data Parallelly
         const [
@@ -41,7 +53,11 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             lastMonthRevenue,
             lastYearRevenue,
             wasteMonth,
-            purchasesMonth
+            lastMonthWaste,
+            purchasesMonth,
+            inventorySession,
+            lastInventory,
+            costCenter
         ] = await Promise.all([
             // 1. Yesterday's Revenue
             prisma.revenue.aggregate({
@@ -56,7 +72,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                 _sum: { totalAmount: true },
                 where: {
                     costCenterId,
-                    startDate: { gte: startOfMonth }
+                    startDate: { gte: startOfMonth, lte: endOfMonth }
                 }
             }),
             // 3. Last Month Revenue
@@ -76,9 +92,6 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                 }
             }),
             // 5. Waste This Month (StockMovement type WASTE)
-            // Note: If StockMovement lacks costCenterId, we might need a workaround. 
-            // Assuming we check Organization level for now or check if schema update allows filtering.
-            // Using a heuristic: user.organizationId
             (async () => {
                 const orgId = request.user?.organizationId;
                 if (!orgId) return { _sum: { totalCost: 0 } };
@@ -86,15 +99,26 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                     _sum: { totalCost: true },
                     where: {
                         type: 'WASTE',
-                        organizationId: orgId, // Best approximation if CC not available
-                        createdAt: { gte: startOfMonth }
+                        organizationId: orgId,
+                        createdAt: { gte: startOfMonth, lte: endOfMonth }
                     }
                 });
             })(),
-            // 6. Purchases This Month (Entradas)
+            // 6. Waste Last Month
             (async () => {
-                // Determine source for "Purchases". StockMovement IN or PurchaseList?
-                // Request said "Compras (entradas no estoque)".
+                const orgId = request.user?.organizationId;
+                if (!orgId) return { _sum: { totalCost: 0 } };
+                return prisma.stockMovement.aggregate({
+                    _sum: { totalCost: true },
+                    where: {
+                        type: 'WASTE',
+                        organizationId: orgId,
+                        createdAt: { gte: startOfLastMonth, lte: endOfLastMonth }
+                    }
+                });
+            })(),
+            // 7. Purchases This Month (Entradas)
+            (async () => {
                 const orgId = request.user?.organizationId;
                 if (!orgId) return { _sum: { totalCost: 0 } };
                 return prisma.stockMovement.aggregate({
@@ -102,28 +126,61 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                     where: {
                         type: 'IN',
                         organizationId: orgId,
-                        createdAt: { gte: startOfMonth }
+                        createdAt: { gte: startOfMonth, lte: endOfMonth }
                     }
                 });
-            })()
+            })(),
+            // 8. Stock Accuracy (Average Precision of Inventory Sessions)
+            prisma.inventorySession.aggregate({
+                _avg: { precision: true },
+                where: {
+                    costCenterId,
+                    status: 'COMPLETED',
+                    endDate: { gte: startOfMonth, lte: endOfMonth }
+                }
+            }),
+            // 9. Last Inventory Date
+            prisma.inventorySession.findFirst({
+                where: {
+                    costCenterId,
+                    status: 'COMPLETED'
+                },
+                orderBy: { endDate: 'desc' },
+                select: { endDate: true }
+            }),
+            // 10. Cost Center Targets
+            prisma.costCenter.findUnique({
+                where: { id: costCenterId },
+                select: { targetCmvPercent: true, alertCmvThreshold: true }
+            })
         ]);
 
         // Calculate Forecast
         const currentMonthTotal = monthRevenue._sum.totalAmount || 0;
-        const daysPassed = now.getDate(); // Including today, or -1? Usually Forecast includes today's projection
-        // Simple: (Revenue / DaysPassed) * TotalDays
-        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-        const forecast = daysPassed > 0
-            ? (currentMonthTotal / daysPassed) * daysInMonth
-            : 0;
+        const lastMonthTotal = lastMonthRevenue._sum.totalAmount || 0;
+        const wasteMonthTotal = wasteMonth._sum.totalCost || 0;
+        const lastMonthWasteTotal = lastMonthWaste._sum.totalCost || 0;
 
-        // Calculate "CMV" as (Purchases / Revenue) * 100 roughly
-        // Or if we have real CMV from somewhere else? User asked for "CMV Real na aba"
-        // Usually CMV Real = (Opening + Purchases - Closing) / Revenue.
-        // We lack inventory closing snapshot for "Now".
-        // Using "Purchases / Revenue" is "Purchases %".
-        // Let's return the raw values and let Logic handle it.
-        // Or we stick to the requested "Compras vs Faturamento" chart.
+        // Accurate Forecast Logic
+        let forecast = 0;
+        const realToday = new Date();
+        const isCurrentMonth = now.getMonth() === realToday.getMonth() && now.getFullYear() === realToday.getFullYear();
+
+        if (isCurrentMonth) {
+            // If viewing current month, project based on days passed
+            const daysPassed = realToday.getDate();
+            const daysInMonth = new Date(realToday.getFullYear(), realToday.getMonth() + 1, 0).getDate();
+            forecast = daysPassed > 0
+                ? (currentMonthTotal / daysPassed) * daysInMonth
+                : 0;
+        } else {
+            // If viewing past/future month, forecast is just the total (closed / planned)
+            forecast = currentMonthTotal;
+        }
+
+        // Calculate Trends
+        const revenueTrend = lastMonthTotal > 0 ? ((currentMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0;
+        const wasteTrend = lastMonthWasteTotal > 0 ? ((wasteMonthTotal - lastMonthWasteTotal) / lastMonthWasteTotal) * 100 : 0;
 
         return reply.send({
             success: true,
@@ -131,16 +188,23 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                 revenue: {
                     yesterday: yesterdayRevenue._sum.totalAmount || 0,
                     thisMonth: currentMonthTotal,
-                    lastMonth: lastMonthRevenue._sum.totalAmount || 0,
+                    lastMonth: lastMonthTotal,
                     lastYearSameMonth: lastYearRevenue._sum.totalAmount || 0,
                     forecast: forecast,
-                    trend: 0 // Placeholder
+                    trend: revenueTrend
                 },
                 purchases: {
                     thisMonth: purchasesMonth._sum.totalCost || 0
                 },
                 waste: {
-                    thisMonth: wasteMonth._sum.totalCost || 0
+                    thisMonth: wasteMonthTotal,
+                    trend: wasteTrend
+                },
+                stockAccuracy: (inventorySession._avg.precision || 0) * 100,
+                lastInventoryDate: lastInventory?.endDate || null,
+                targets: {
+                    cmv: costCenter?.targetCmvPercent || 30,
+                    cmvAlert: costCenter?.alertCmvThreshold || 35
                 }
             }
         });
@@ -154,8 +218,8 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             summary: 'Get revenue chart data',
             security: [{ bearerAuth: [] }],
         },
-    }, async (request, reply) => {
-        const costCenterId = request.user!.costCenterId;
+    }, async (request: FastifyRequest<{ Querystring: { period?: string } }>, reply: FastifyReply) => {
+        const costCenterId = request.user!.costCenterId || ''; // Validated by preHandler
         const period = request.query.period || 'week';
         const now = new Date();
         let startDate = new Date();
@@ -206,8 +270,8 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
     fastify.get('/monthly-chart', {
         preHandler: [requireCostCenter],
         schema: { tags: ['Dashboard'] }
-    }, async (request, reply) => {
-        const costCenterId = request.user!.costCenterId;
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+        const costCenterId = request.user!.costCenterId || ''; // Validated by preHandler
         const orgId = request.user!.organizationId;
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -254,5 +318,61 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         }));
 
         return reply.send({ success: true, data });
+    });
+
+    fastify.get('/stock-turnover', {
+        preHandler: [requireCostCenter],
+        schema: {
+            tags: ['Dashboard'],
+            summary: 'Get stock turnover data (3 Months Aggregate)',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+        const orgId = request.user?.organizationId;
+        if (!orgId) return reply.send({ success: false, error: 'No organization' });
+
+        const now = new Date();
+        const results = [];
+
+        // Fetch last 3 months (including current)
+        for (let i = 2; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+            const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+
+            const movements = await prisma.stockMovement.findMany({
+                where: {
+                    organizationId: orgId,
+                    createdAt: {
+                        gte: startOfMonth,
+                        lte: endOfMonth
+                    }
+                },
+                select: {
+                    type: true,
+                    totalCost: true
+                }
+            });
+
+            let entries = 0;
+            let exits = 0;
+
+            movements.forEach(m => {
+                if (m.type === 'IN' || m.type === 'RETURN') {
+                    entries += m.totalCost;
+                } else if (m.type === 'OUT' || m.type === 'WASTE' || m.type === 'PRODUCTION') {
+                    exits += m.totalCost;
+                }
+            });
+
+            const monthName = date.toLocaleString('pt-BR', { month: 'long' });
+            results.push({
+                label: monthName.charAt(0).toUpperCase() + monthName.slice(1),
+                entries,
+                exits
+            });
+        }
+
+        return reply.send({ success: true, data: results });
     });
 }

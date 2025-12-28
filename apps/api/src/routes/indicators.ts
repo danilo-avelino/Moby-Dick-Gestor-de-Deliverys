@@ -4,6 +4,18 @@ import { prisma } from 'database'; // Adjusted import based on monorepo structur
 import { authenticate } from '../middleware/auth';
 import { errors } from '../middleware/error-handler';
 // import { UserRole } from 'types'; // Not used directly in this file anymore
+import { calculateIndicatorValue } from '../services/indicator-service';
+import { Indicator } from '@prisma/client';
+
+const STANDARD_INDICATORS: Partial<Indicator>[] = [
+    { type: 'STOCK_CMV', name: 'CMV de Estoque', description: 'Custo da mercadoria vendida baseada nas saídas de estoque.', targetValue: 30, cycle: 'MONTHLY' },
+    { type: 'PURCHASING', name: 'Compras vs Meta', description: 'Volume de compras em relação à meta de CMV.', targetValue: 30, cycle: 'MONTHLY' },
+    { type: 'RECIPE_COVERAGE', name: 'Cobertura de Fichas', description: 'Porcentagem do cardápio com fichas técnicas.', targetValue: 100, cycle: 'MONTHLY' },
+    { type: 'WASTE_PERCENT', name: 'Desperdício (%)', description: 'Perdas e quebras em relação ao faturamento.', targetValue: 2, cycle: 'MONTHLY' },
+    { type: 'WASTE_PERCENT', name: 'Desperdício (%)', description: 'Perdas e quebras em relação ao faturamento.', targetValue: 2, cycle: 'MONTHLY' },
+    { type: 'REVENUE', name: 'Faturamento', description: 'Receita total de vendas no período.', targetValue: 100000, cycle: 'MONTHLY' },
+    { type: 'STOCK_ACCURACY', name: 'Precisão de Estoque', description: 'Porcentagem de itens com contagem correta no inventário.', targetValue: 98, cycle: 'MONTHLY' },
+];
 
 const updateIndicatorSchema = z.object({
     targetValue: z.number().optional(),
@@ -64,7 +76,47 @@ export async function indicatorRoutes(fastify: FastifyInstance) {
             orderBy: { name: 'asc' }
         });
 
-        return indicators;
+        // Auto-seed missing standard indicators if user can configure
+        if (canConfigure) {
+            const existingTypes = new Set(indicators.map(i => i.type));
+            const missing = STANDARD_INDICATORS.filter(std => !existingTypes.has(std.type as any));
+
+            if (missing.length > 0) {
+                // Create missing indicators
+                // We do this individually or createMany. createMany doesn't return created items easily in all SQLs? 
+                // Using transaction or loop. Loop is fine for 5 items.
+                for (const std of missing) {
+                    const created = await prisma.indicator.create({
+                        data: {
+                            ...std,
+                            costCenterId,
+                            targetValue: std.targetValue || 0,
+                            periodStart: new Date(), // Improve this
+                            periodEnd: new Date(),   // Improve this
+                            isActive: false // Start inactive so user can enable
+                        } as any
+                    });
+                    // Add to list to return immediately
+                    indicators.push(created as any);
+                }
+            }
+        }
+
+        // Calculate current values for dynamic indicators
+        const indicatorsWithValues = await Promise.all(indicators.map(async (ind) => {
+            if (ind.isActive) {
+                try {
+                    const value = await calculateIndicatorValue(ind);
+                    return { ...ind, currentValue: value };
+                } catch (e) {
+                    request.log.error(`Error calculating indicator ${ind.id}:`, e);
+                    return ind;
+                }
+            }
+            return ind;
+        }));
+
+        return indicatorsWithValues;
     });
 
     // GET /indicators/:id - Details

@@ -4,6 +4,9 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { formatCurrency, formatPercent } from '../../lib/utils';
 import { TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Calendar } from 'lucide-react';
+import {
+    ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend
+} from 'recharts';
 import { format, startOfMonth, endOfMonth, subMonths, startOfDay, endOfDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -27,6 +30,13 @@ interface CategoryData {
         cost: number;
         percent: number;
     }>;
+}
+
+interface ChartData {
+    date: string;
+    revenue: number;
+    cost: number;
+    cmvPercent: number;
 }
 
 export default function CMV() {
@@ -67,6 +77,12 @@ export default function CMV() {
     const { data: categoryData } = useQuery<CategoryData>({
         queryKey: ['cmv-category', startDate, endDate],
         queryFn: () => api.get('/api/cmv/by-category', { params: { startDate, endDate } }).then((r) => r.data.data),
+        enabled: !!startDate && !!endDate && isCustomValid,
+    });
+
+    const { data: chartData, isLoading: chartLoading } = useQuery<ChartData[]>({
+        queryKey: ['cmv-chart', startDate, endDate],
+        queryFn: () => api.get('/api/cmv/chart', { params: { startDate, endDate } }).then((r) => r.data.data),
         enabled: !!startDate && !!endDate && isCustomValid,
     });
 
@@ -174,22 +190,82 @@ export default function CMV() {
                 </div>
 
                 <div className="stat-card p-6 rounded-xl bg-gray-900 border border-white/5 relative overflow-hidden group">
-                    <div className={`absolute inset-0 bg-gradient-to-br ${isAboveTarget ? 'from-red-500/10' : 'from-green-500/10'} to-transparent opacity-0 group-hover:opacity-100 transition-opacity`} />
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                     <div className="relative z-10">
                         <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-3">
-                                <div className={`p-2 rounded-lg ${isAboveTarget ? 'bg-red-500/20' : 'bg-green-500/20'}`}>
-                                    {isAboveTarget ? <TrendingUp className="w-5 h-5 text-red-400" /> : <TrendingDown className="w-5 h-5 text-green-400" />}
+                                <div className="p-2 rounded-lg bg-amber-500/20">
+                                    <TrendingUp className="w-5 h-5 text-[#fbbf24]" />
                                 </div>
-                                <p className="text-sm text-gray-400 font-medium">CMV Apurado</p>
+                                <p className="text-sm text-gray-400 font-medium">CMV pelo Estoque</p>
                             </div>
                             {isAboveTarget && <span className="text-xs font-bold text-red-400 bg-red-500/10 px-2 py-1 rounded">Acima da Meta</span>}
                         </div>
-                        <p className={`text-3xl font-bold ${isAboveTarget ? 'text-red-400' : 'text-green-400'}`}>
+                        <p className="text-3xl font-bold text-[#fbbf24]">
                             {formatPercent(current)}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">Meta: {formatPercent(target)}</p>
                     </div>
+                </div>
+            </div>
+
+            {/* Daily Evolution Chart */}
+            <div className="glass-card p-6 rounded-xl bg-gray-900/50 border border-white/5">
+                <h3 className="text-lg font-semibold text-white mb-6">Evolução Diária (Receita vs Custo)</h3>
+                <div className="h-[300px] w-full">
+                    {chartLoading ? (
+                        <div className="flex items-center justify-center h-full text-gray-500">Carregando gráfico...</div>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ComposedChart data={chartData || []}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                                <XAxis
+                                    dataKey="date"
+                                    tickFormatter={(val) => {
+                                        try {
+                                            return format(new Date(val), 'dd/MM');
+                                        } catch {
+                                            return val;
+                                        }
+                                    }}
+                                    stroke="#9CA3AF"
+                                    fontSize={12}
+                                />
+                                <YAxis
+                                    yAxisId="left"
+                                    stroke="#9CA3AF"
+                                    fontSize={12}
+                                    tickFormatter={(val) => `R$ ${val / 1000}k`}
+                                />
+                                <YAxis
+                                    yAxisId="right"
+                                    orientation="right"
+                                    stroke="#9CA3AF"
+                                    fontSize={12}
+                                    unit="%"
+                                />
+                                <Tooltip
+                                    contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', color: '#fff' }}
+                                    formatter={(value: number, name: string) => {
+                                        if (name === 'CMV pelo estoque') return [formatPercent(value || 0), name];
+                                        return [formatCurrency(value || 0), name];
+                                    }}
+                                    labelFormatter={(label) => {
+                                        try {
+                                            const d = new Date(label);
+                                            return format(d, "dd 'de' MMMM", { locale: ptBR });
+                                        } catch {
+                                            return label;
+                                        }
+                                    }}
+                                />
+                                <Legend />
+                                <Bar yAxisId="left" dataKey="revenue" name="Faturamento" fill="#22c55e" radius={[4, 4, 0, 0]} opacity={0.8} />
+                                <Bar yAxisId="left" dataKey="cost" name="Saídas de estoque" fill="#ef4444" radius={[4, 4, 0, 0]} opacity={0.8} />
+                                <Line yAxisId="right" type="monotone" dataKey="cmvPercent" name="CMV pelo estoque" stroke="#fbbf24" strokeWidth={2} dot={false} />
+                            </ComposedChart>
+                        </ResponsiveContainer>
+                    )}
                 </div>
             </div>
 
@@ -223,6 +299,6 @@ export default function CMV() {
                     )}
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

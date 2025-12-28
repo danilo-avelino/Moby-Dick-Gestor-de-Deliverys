@@ -2,14 +2,15 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/auth';
 import { useSettingsStore } from '../../stores/settings';
-import { User, Building, Bell, Palette, Layers, Package, Trash2, Settings as SettingsIcon, Users, Loader2, AlertTriangle } from 'lucide-react';
+import { User, Building, Bell, Palette, Layers, Package, Trash2, Settings as SettingsIcon, Users, Loader2, AlertTriangle, Plug } from 'lucide-react';
 import { api } from '../../lib/api';
 import toast from 'react-hot-toast';
 import UserManagement from '../admin/UserManagement';
 import { RestaurantManagement } from './RestaurantManagement';
+import Integrations from '../integrations/Integrations';
 
 // Sections
-type SettingsSection = 'general' | 'users' | 'restaurants' | 'backup';
+type SettingsSection = 'general' | 'users' | 'restaurants' | 'integrations' | 'backup';
 
 import { BackupSettings } from './BackupSettings';
 
@@ -45,7 +46,16 @@ export default function Settings() {
                             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeSection === 'restaurants' ? 'bg-primary-500/20 text-primary-400' : 'text-gray-400 hover:bg-white/5 hover:text-white'
                                 }`}
                         >
+                            <Building className="w-5 h-5" />
                             <span className="font-medium">Restaurantes</span>
+                        </button>
+                        <button
+                            onClick={() => setActiveSection('integrations')}
+                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeSection === 'integrations' ? 'bg-primary-500/20 text-primary-400' : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                                }`}
+                        >
+                            <Plug className="w-5 h-5" />
+                            <span className="font-medium">Integrações</span>
                         </button>
                         <button
                             onClick={() => setActiveSection('backup')}
@@ -64,6 +74,7 @@ export default function Settings() {
                 {activeSection === 'general' && <GeneralSettings user={user} />}
                 {activeSection === 'users' && <UserManagement />}
                 {activeSection === 'restaurants' && <RestaurantManagement />}
+                {activeSection === 'integrations' && <Integrations />}
                 {activeSection === 'backup' && <BackupSettings />}
             </main>
         </div>

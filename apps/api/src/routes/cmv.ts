@@ -209,4 +209,85 @@ export async function cmvRoutes(fastify: FastifyInstance) {
             },
         });
     });
+
+    // Get Daily Chart Data
+    fastify.get<{
+        Querystring: { startDate: string; endDate: string };
+    }>('/chart', {
+        preHandler: [requireCostCenter],
+        schema: {
+            tags: ['CMV'],
+            summary: 'Get daily CMV chart data',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const { startDate, endDate } = request.query;
+        const costCenterId = request.user!.costCenterId!;
+        const organizationId = request.user!.organizationId;
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        // Fetch daily revenues
+        const revenues = await prisma.revenue.findMany({
+            where: {
+                costCenterId,
+                startDate: { gte: start },
+                endDate: { lte: end } // Use startDate for grouping usually
+            }
+        });
+
+
+
+        // Better approach for costs: FindMany to get dates
+        const stockOuts = await prisma.stockMovement.findMany({
+            where: {
+                organizationId,
+                type: 'OUT',
+                createdAt: { gte: start, lte: end }
+            },
+            select: { createdAt: true, totalCost: true }
+        });
+
+        // Aggregate Data by Date
+        const dataMap = new Map<string, { date: string, revenue: number, cost: number }>();
+
+        // Initialize map with all days in range? Or just let chart fill? 
+        // Recharts prefers continuous data for XAxis time scale, but categorical is fine if sorted.
+        // Let's iterate days to ensure zero-filling.
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const dateKey = d.toISOString().split('T')[0];
+            dataMap.set(dateKey, { date: dateKey, revenue: 0, cost: 0 });
+        }
+
+        // Fill Revenue
+        revenues.forEach(r => {
+            const dateKey = new Date(r.startDate).toISOString().split('T')[0];
+            if (dataMap.has(dateKey)) {
+                const entry = dataMap.get(dateKey)!;
+                entry.revenue += r.totalAmount;
+            }
+        });
+
+        // Fill Costs
+        stockOuts.forEach(c => {
+            const dateKey = new Date(c.createdAt).toISOString().split('T')[0];
+            if (dataMap.has(dateKey)) {
+                const entry = dataMap.get(dateKey)!;
+                entry.cost += c.totalCost;
+            }
+        });
+
+        const chartData = Array.from(dataMap.values()).map(item => ({
+            ...item,
+            cmvPercent: item.revenue > 0 ? (item.cost / item.revenue) * 100 : 0
+        }));
+
+        return reply.send({
+            success: true,
+            data: chartData
+        });
+    });
 }

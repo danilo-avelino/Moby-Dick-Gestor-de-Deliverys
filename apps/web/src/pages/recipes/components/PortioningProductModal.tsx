@@ -28,6 +28,7 @@ export function PortioningProductModal({ onClose, initialData }: PortioningProdu
     const queryClient = useQueryClient();
     const [name, setName] = useState(initialData?.name || '');
     const [rawProductId, setRawProductId] = useState(initialData?.rawProductId || '');
+    const [quantityUsed, setQuantityUsed] = useState<number | undefined>(initialData?.quantityUsed);
     const [yieldPercent, setYieldPercent] = useState<number>(initialData?.yieldPercent || 100);
 
     // Sub-products state
@@ -52,6 +53,7 @@ export function PortioningProductModal({ onClose, initialData }: PortioningProdu
     });
 
     const products: Product[] = productsData?.data?.data || [];
+    const selectedProduct = products.find(p => p.id === rawProductId);
 
     const handleAddOutput = () => {
         setOutputs([
@@ -115,7 +117,7 @@ export function PortioningProductModal({ onClose, initialData }: PortioningProdu
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!name || !rawProductId || !yieldPercent) {
+        if (!name || !rawProductId || !yieldPercent || !quantityUsed) {
             return toast.error('Preencha os campos obrigatórios.');
         }
 
@@ -132,6 +134,7 @@ export function PortioningProductModal({ onClose, initialData }: PortioningProdu
         const payload = {
             name,
             rawProductId,
+            quantityUsed,
             yieldPercent,
             outputs: outputs.map(({ id, ...rest }) => {
                 if (!initialData) return rest;
@@ -192,6 +195,24 @@ export function PortioningProductModal({ onClose, initialData }: PortioningProdu
                                     ))
                                 )}
                             </select>
+                        </div>
+                        <div>
+                            <label className="label">Quantidade Utilizada</label>
+                            <div className="relative">
+                                <input
+                                    type="number"
+                                    className="input pr-12"
+                                    placeholder="0.000"
+                                    step="0.001"
+                                    value={quantityUsed || ''}
+                                    onChange={e => setQuantityUsed(parseFloat(e.target.value))}
+                                />
+                                {selectedProduct && (
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                                        {selectedProduct.unit}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <div>
                             <label className="label">Meta de Rendimento (%)</label>

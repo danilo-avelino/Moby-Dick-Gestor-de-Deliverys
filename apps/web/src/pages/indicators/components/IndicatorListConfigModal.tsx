@@ -20,11 +20,35 @@ export function IndicatorListConfigModal({ isOpen, onClose, indicators }: Indica
         mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
             return api.put(`/api/indicators/${id}`, { isActive });
         },
-        onSuccess: () => {
+        onMutate: async ({ id, isActive }) => {
+            // Cancel any outgoing refetches (so they don't overwrite our optimistic update)
+            await queryClient.cancelQueries({ queryKey: ["indicators"] });
+
+            // Snapshot the previous value
+            const previousIndicators = queryClient.getQueryData(["indicators"]);
+
+            // Optimistically update to the new value
+            queryClient.setQueryData(["indicators"], (old: any[]) => {
+                return old?.map((ind) =>
+                    ind.id === id ? { ...ind, isActive } : ind
+                );
+            });
+
+            // Return a context object with the snapshotted value
+            return { previousIndicators };
+        },
+        onError: (err, newTodo, context) => {
+            // If the mutation fails, use the context returned from onMutate to roll back
+            queryClient.setQueryData(["indicators"], context?.previousIndicators);
+            toast.error("Erro ao atualizar status");
+        },
+        onSettled: () => {
+            // Always refetch after error or success:
             queryClient.invalidateQueries({ queryKey: ["indicators"] });
+        },
+        onSuccess: () => {
             toast.success("Status atualizado");
         },
-        onError: () => toast.error("Erro ao atualizar status"),
     });
 
     const filteredIndicators = indicators.filter((ind) =>

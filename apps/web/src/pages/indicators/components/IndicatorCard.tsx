@@ -7,17 +7,27 @@ interface IndicatorCardProps {
 }
 
 export function IndicatorCard({ indicator, onClick }: IndicatorCardProps) {
-    const { name, currentValue, targetValue, cycle, isDeveloping, isActive } = indicator;
+    const { name, currentValue, targetValue, cycle, isDeveloping, isActive, type } = indicator;
 
-    // Determine status color
-    // Simple logic: if currentValue >= targetValue then Green, else Red?
-    // Depends on indicator type (Cost vs Revenue). Assuming Revenue logic for now (Higher is better).
-    // If "Ruptura" (Rupture), Lower is better. 
-    // For now, let's use a generic status or assume target is a "Goal".
-    // If system doesn't know direction, maybe we need a `direction` field in schema?
-    // Let's assume standard logic: Green if met.
+    // Helper for formatting
+    const formatValue = (val: number) => {
+        if (type === 'REVENUE') return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        if (['STOCK_CMV', 'PURCHASING', 'RECIPE_COVERAGE', 'WASTE_PERCENT'].includes(type)) return `${val.toFixed(1)}%`;
+        return val.toLocaleString('pt-BR');
+    };
 
-    const isMet = targetValue ? currentValue >= targetValue : false;
+    // Helper for target display
+    const formatTarget = (val: number) => {
+        if (type === 'REVENUE') return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        return val.toLocaleString('pt-BR');
+    };
+
+    // Determine Logic: Higher Better vs Lower Better
+    const isLowerBetter = ['STOCK_CMV', 'PURCHASING', 'WASTE_PERCENT'].includes(type);
+
+    const isMet = targetValue
+        ? (isLowerBetter ? currentValue <= targetValue : currentValue >= targetValue)
+        : false;
     const statusColor = isDeveloping
         ? "bg-gray-100 border-gray-200 text-gray-500"
         : isMet
@@ -63,7 +73,7 @@ export function IndicatorCard({ indicator, onClick }: IndicatorCardProps) {
                 <div className="space-y-3">
                     <div className="flex items-baseline justify-between">
                         <span className="text-3xl font-bold text-white">
-                            {currentValue.toLocaleString('pt-BR')}
+                            {formatValue(currentValue)}
                         </span>
                         <div className={cn("flex items-center text-sm font-medium", isMet ? "text-emerald-400" : "text-red-400")}>
                             {isMet ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
@@ -73,14 +83,14 @@ export function IndicatorCard({ indicator, onClick }: IndicatorCardProps) {
 
                     <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
                         <div
-                            className={cn("h-full rounded-full", isMet ? "bg-emerald-500" : "bg-red-500")}
                             style={{ width: `${Math.min((currentValue / (targetValue || 1)) * 100, 100)}%` }}
+                            className={cn("h-full rounded-full", isMet ? "bg-emerald-500" : "bg-red-500")}
                         />
                     </div>
 
                     <div className="flex justify-between text-xs text-gray-500 pt-2 border-t border-white/5">
                         <span className="flex items-center">
-                            <Target className="w-3 h-3 mr-1" /> Meta: {targetValue?.toLocaleString('pt-BR') || '-'}
+                            <Target className="w-3 h-3 mr-1" /> Meta: {formatTarget(targetValue)}
                         </span>
                         <span className="flex items-center">
                             <Clock className="w-3 h-3 mr-1" /> Atualizado há 2h

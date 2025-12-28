@@ -1,14 +1,13 @@
+
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth';
 import {
-    LayoutDashboard, Package, Warehouse, TrendingUp, PieChart, BookOpen,
-    Bell, Target, Plug, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
-    MessageSquare, ClipboardList, ClipboardCheck, Apple, Users, ShoppingBag, CreditCard, History,
-    Building, RefreshCw, Calendar, DollarSign
+    LayoutDashboard, Warehouse, TrendingUp, PieChart, BookOpen,
+    Bell, Target, ShoppingCart, Settings, LogOut, Menu, X, User, Clock,
+    MessageSquare, ClipboardList, Users, ShoppingBag, Calendar, DollarSign, Building
 } from 'lucide-react';
-import { useState, Fragment } from 'react';
+import { useState } from 'react';
 import { cn, getInitials } from '../lib/utils';
-import { Menu as HeadlessMenu, Transition } from '@headlessui/react';
 import { api } from '../lib/api';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { UserRole } from 'types';
@@ -17,21 +16,17 @@ import toast from 'react-hot-toast';
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'PDV', href: '/pdv', icon: ShoppingBag, roles: [UserRole.DIRETOR, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
-    { name: 'Produtos', href: '/products', icon: Package, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Estoque', href: '/stock', icon: Warehouse, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER], end: true },
     { name: 'Requisição (Chef)', href: '/stock/my-requests', icon: ClipboardList, roles: [UserRole.CHEF_DE_COZINHA] },
-    { name: 'Requisições (Gestão)', href: '/stock/requests', icon: ClipboardCheck, badge: true, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Fichas Técnicas', href: '/recipes', icon: BookOpen, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'CMV', href: '/cmv', icon: TrendingUp, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Análise Cardápio', href: '/menu-analysis', icon: PieChart, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Cardápio', href: '/menu', icon: Menu, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Escalas', href: '/schedules', icon: Calendar, roles: [UserRole.DIRETOR, UserRole.MANAGER, UserRole.SUPER_ADMIN, UserRole.ADMIN] },
     { name: 'Tempos de Trabalho', href: '/work-times', icon: Clock, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
-    { name: 'Alertas', href: '/alerts', icon: Bell, badge: true, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
+
     { name: 'Indicadores', href: '/indicators', icon: Target, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Faturamento', href: '/financial/invoicing', icon: DollarSign, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
-    { name: 'Integrações', href: '/integrations', icon: Plug, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
-    { name: 'Lista de compras', href: '/purchases', icon: ShoppingCart, roles: [UserRole.DIRETOR, UserRole.ESTOQUE, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'NPS', href: '/nps', icon: MessageSquare, roles: [UserRole.DIRETOR, UserRole.CHEF_DE_COZINHA, UserRole.LIDER_DESPACHO, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
     { name: 'Gestão de Usuários', href: '/admin/users', icon: Users, roles: [UserRole.DIRETOR, UserRole.SUPER_ADMIN, UserRole.ADMIN, UserRole.MANAGER] },
 ];
@@ -157,11 +152,7 @@ export default function Layout() {
                             >
                                 <item.icon className="w-5 h-5" />
                                 <span>{item.name}</span>
-                                {item.badge && item.name === 'Alertas' && alertCount > 0 && (
-                                    <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                                        {alertCount}
-                                    </span>
-                                )}
+
                                 {item.badge && (item.name.includes('Requisições')) && requestCount > 0 && (
                                     <span className="ml-auto bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
                                         {requestCount}

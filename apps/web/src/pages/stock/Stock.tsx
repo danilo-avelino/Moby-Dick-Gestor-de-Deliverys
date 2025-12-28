@@ -8,7 +8,7 @@ import { formatCurrency, formatNumber, formatDate } from '../../lib/utils';
 import {
     Plus, Package, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
     Clock, AlertTriangle, Calendar, Trash2, ClipboardCheck, RefreshCw,
-    Search, Filter, MoreVertical, Eye, History, Tag, X, FileOutput, Upload
+    Search, Filter, MoreVertical, Eye, History, Tag, X, FileOutput, Upload, ShoppingCart
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -150,13 +150,7 @@ export default function Stock() {
                     <p className="text-gray-400">Controle completo do seu inventário</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button onClick={() => refetch()} className="btn-ghost">
-                        <RefreshCw className="w-4 h-4" /> Atualizar
-                    </button>
-                    <button onClick={() => setShowImportModal(true)} className="btn-ghost">
-                        <Upload className="w-4 h-4" /> Importar Excel
-                    </button>
-                    <Link to="/stock/inventory" className="btn-secondary">
+                    <Link to="/stock/inventory" className="btn-primary">
                         <ClipboardCheck className="w-5 h-5" /> Fazer Inventário
                     </Link>
                     <Link to="/stock/entry" className="btn-primary">
@@ -165,22 +159,7 @@ export default function Stock() {
                 </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
-                {tabs.map((tab) => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id as any)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${activeTab === tab.id
-                            ? 'bg-primary-600 text-white'
-                            : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
-                            }`}
-                    >
-                        <tab.icon className="w-4 h-4" />
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
+            {/* Tabs removed as per request */}
 
             {/* Overview Tab */}
             {activeTab === 'overview' && (
@@ -339,6 +318,23 @@ export default function Stock() {
                             <Calendar className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
                             <p className="font-medium text-white">Ver Vencimentos</p>
                         </button>
+
+                        <Link to="/products" className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <Package className="w-8 h-8 text-primary-400 mx-auto mb-2" />
+                            <p className="font-medium text-white">Produtos</p>
+                        </Link>
+                        <Link to="/stock/requests" className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <ClipboardCheck className="w-8 h-8 text-amber-400 mx-auto mb-2" />
+                            <p className="font-medium text-white">Requisições</p>
+                        </Link>
+                        <Link to="/purchases" className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <ShoppingCart className="w-8 h-8 text-blue-400 mx-auto mb-2" />
+                            <p className="font-medium text-white">Lista de Compras</p>
+                        </Link>
+                        <button onClick={() => setActiveTab('movements')} className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <History className="w-8 h-8 text-purple-400 mx-auto mb-2" />
+                            <p className="font-medium text-white">Movimentações</p>
+                        </button>
                     </div>
                 </>
             )}
@@ -347,7 +343,12 @@ export default function Stock() {
             {activeTab === 'movements' && (
                 <div className="glass-card">
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-white">Movimentações Recentes</h3>
+                        <div className="flex items-center gap-4">
+                            <button onClick={() => setActiveTab('overview')} className="btn-ghost text-sm">
+                                ← Voltar
+                            </button>
+                            <h3 className="text-lg font-semibold text-white">Movimentações Recentes</h3>
+                        </div>
                         <div className="flex items-center gap-2">
                             <div className="relative">
                                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -488,9 +489,14 @@ export default function Stock() {
             {activeTab === 'expiring' && (
                 <div className="glass-card">
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                            <Calendar className="w-5 h-5 text-yellow-400" /> Produtos Próximos do Vencimento
-                        </h3>
+                        <div className="flex items-center gap-4">
+                            <button onClick={() => setActiveTab('overview')} className="btn-ghost text-sm">
+                                ← Voltar
+                            </button>
+                            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                                <Calendar className="w-5 h-5 text-yellow-400" /> Produtos Próximos do Vencimento
+                            </h3>
+                        </div>
                     </div>
 
                     <div className="space-y-3">

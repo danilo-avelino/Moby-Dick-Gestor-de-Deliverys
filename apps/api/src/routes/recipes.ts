@@ -7,8 +7,8 @@ import type { ApiResponse } from 'types';
 
 const ingredientSchema = z.object({
     ingredientType: z.enum(['PRODUCT', 'RECIPE']),
-    productId: z.string().optional(),
-    subRecipeId: z.string().optional(),
+    productId: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+    subRecipeId: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
     quantity: z.number().positive(),
     unit: z.string(),
     isOptional: z.boolean().optional(),
@@ -19,17 +19,18 @@ const createRecipeSchema = z.object({
     description: z.string().optional(),
     type: z.enum(['TRANSFORMED_ITEM', 'PORTIONING', 'FINAL_PRODUCT', 'COMBO']).default('FINAL_PRODUCT'),
     status: z.enum(['DRAFT', 'INCOMPLETE', 'COMPLETE']).default('DRAFT'),
-    recipeCategoryId: z.string().optional(),
-    outputProductId: z.string().optional(),
-    targetCmv: z.number().min(0).max(100).optional(),
+    recipeCategoryId: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+    outputProductId: z.preprocess((val) => (val === '' ? undefined : val), z.string().optional()),
+    targetCmv: z.preprocess((val) => (val === '' || val === null ? undefined : parseFloat(String(val))), z.number().min(0).max(100).optional()),
     yieldQuantity: z.number().positive().default(1),
+    isComponent: z.boolean().default(false),
     yieldUnit: z.string().default('un'),
-    currentPrice: z.number().min(0).optional(),
+    currentPrice: z.preprocess((val) => (val === '' || val === null ? undefined : parseFloat(String(val))), z.number().min(0).optional()),
     packagingCost: z.number().min(0).default(0),
     laborCost: z.number().min(0).default(0),
     overheadPercent: z.number().min(0).max(100).default(0),
-    prepTimeMinutes: z.number().min(0).optional(),
-    cookTimeMinutes: z.number().min(0).optional(),
+    prepTimeMinutes: z.preprocess((val) => (val === '' || val === null ? undefined : parseFloat(String(val))), z.number().min(0).optional()),
+    cookTimeMinutes: z.preprocess((val) => (val === '' || val === null ? undefined : parseFloat(String(val))), z.number().min(0).optional()),
     imageUrl: z.string().url().optional(),
     instructions: z.string().optional(),
     ingredients: z.array(ingredientSchema).min(1),
@@ -58,7 +59,7 @@ async function calculateRecipeCost(
             });
             if (product) {
                 // Convert units if needed
-                unitCost = product.avgCost;
+                unitCost = product.lastPurchasePrice || product.avgCost;
                 // Simplified: assume same unit for now
             }
         } else if (ingredient.ingredientType === 'RECIPE' && ingredient.subRecipeId) {
@@ -97,7 +98,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const page = parseInt(request.query.page || '1', 10);
-        const limit = Math.min(parseInt(request.query.limit || '20', 10), 100);
+        const limit = Math.min(parseInt(request.query.limit || '20', 10), 1000);
         const skip = (page - 1) * limit;
 
         const where: any = {
@@ -139,6 +140,9 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             return {
                 id: r.id,
                 name: r.name,
+                type: r.type,
+                status: r.status,
+                isComponent: r.isComponent,
                 description: r.description,
                 category: r.recipeCategory,
                 yieldQuantity: r.yieldQuantity,
@@ -252,6 +256,7 @@ export async function recipeRoutes(fastify: FastifyInstance) {
                 prepTimeMinutes: recipe.prepTimeMinutes,
                 cookTimeMinutes: recipe.cookTimeMinutes,
                 version: recipe.version,
+                isComponent: recipe.isComponent,
                 isActive: recipe.isActive,
                 imageUrl: recipe.imageUrl,
                 instructions: recipe.instructions,
@@ -285,7 +290,13 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const body = createRecipeSchema.parse(request.body);
+        const result = createRecipeSchema.safeParse(request.body);
+        if (!result.success) {
+            const errorMessage = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+            console.error('Recipe creation validation error:', errorMessage);
+            throw errors.badRequest(`Validation failed: ${errorMessage}`);
+        }
+        const body = result.data;
 
         // Calculate cost
         const { totalCost, ingredientCosts } = await calculateRecipeCost(
@@ -364,7 +375,13 @@ export async function recipeRoutes(fastify: FastifyInstance) {
             security: [{ bearerAuth: [] }],
         },
     }, async (request, reply) => {
-        const body = createRecipeSchema.partial().parse(request.body);
+        const result = createRecipeSchema.partial().safeParse(request.body);
+        if (!result.success) {
+            const errorMessage = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
+            console.error('Recipe update validation error:', errorMessage);
+            throw errors.badRequest(`Validation failed: ${errorMessage}`);
+        }
+        const body = result.data;
 
         const existing = await prisma.recipe.findFirst({
             where: {
@@ -558,7 +575,6 @@ export async function recipeRoutes(fastify: FastifyInstance) {
         for (const change of significantChanges) {
             await prisma.alert.create({
                 data: {
-                    organizationId: request.user!.organizationId!,
                     type: 'COST_INCREASE',
                     severity: Math.abs(change.change) > 10 ? 'HIGH' : 'MEDIUM',
                     title: `Custo alterado: ${change.name}`,

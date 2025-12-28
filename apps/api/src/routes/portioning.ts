@@ -46,6 +46,7 @@ export async function portioningRoutes(fastify: FastifyInstance) {
     const createProcessSchema = z.object({
         name: z.string().min(3),
         rawProductId: z.string(),
+        quantityUsed: z.number().optional(),
         yieldPercent: z.number().min(0).max(100),
         outputs: z.array(z.object({
             name: z.string(),
@@ -65,6 +66,7 @@ export async function portioningRoutes(fastify: FastifyInstance) {
                 properties: {
                     name: { type: 'string' },
                     rawProductId: { type: 'string' },
+                    quantityUsed: { type: 'number' },
                     yieldPercent: { type: 'number' },
                     outputs: {
                         type: 'array',
@@ -83,13 +85,13 @@ export async function portioningRoutes(fastify: FastifyInstance) {
             }
         }
     }, async (request, reply) => {
-        const { name, rawProductId, yieldPercent, outputs } = createProcessSchema.parse(request.body);
+        const { name, rawProductId, quantityUsed, yieldPercent, outputs } = createProcessSchema.parse(request.body);
 
         const process = await prisma.$transaction(async (tx) => {
             const newProcess = await tx.portioningProcess.create({
                 data: {
                     costCenterId: request.user!.costCenterId!,
-                    name, rawProductId,
+                    name, rawProductId, quantityUsed,
                     yieldPercent, wastePercent: 100 - yieldPercent,
                 },
             });
@@ -135,7 +137,7 @@ export async function portioningRoutes(fastify: FastifyInstance) {
         schema: { tags: ['Portioning'], summary: 'Update portioning process', security: [{ bearerAuth: [] }] },
     }, async (request, reply) => {
         const { id } = request.params;
-        const { name, rawProductId, yieldPercent, outputs } = updateProcessSchema.parse(request.body);
+        const { name, rawProductId, quantityUsed, yieldPercent, outputs } = updateProcessSchema.parse(request.body);
 
         // Verify ownership
         const existing = await prisma.portioningProcess.findFirst({
@@ -149,7 +151,7 @@ export async function portioningRoutes(fastify: FastifyInstance) {
             const p = await tx.portioningProcess.update({
                 where: { id },
                 data: {
-                    name, rawProductId,
+                    name, rawProductId, quantityUsed,
                     yieldPercent, wastePercent: 100 - yieldPercent,
                 },
             });
