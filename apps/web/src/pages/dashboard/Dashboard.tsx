@@ -200,7 +200,26 @@ export default function Dashboard() {
                     </BentoCard>
 
                     {/* Charts Row 1: CMV next to Faturamento (Ontem) */}
-                    <BentoCard colSpan={3} title="CMV de Estoque vs Meta" className="min-h-[400px]">
+                    <BentoCard
+                        colSpan={3}
+                        title="CMV de Estoque vs Meta"
+                        className="min-h-[400px]"
+                        headerAction={
+                            <div className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold border",
+                                cmvValue <= cmvTarget
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                    : cmvValue <= cmvAlert
+                                        ? "bg-yellow-500/10 text-yellow-400 border-yellow-500/20"
+                                        : "bg-red-500/10 text-red-400 border-red-500/20"
+                            )}>
+                                <span className="text-xs font-medium opacity-70">Mês Atual:</span>
+                                {formatPercent(cmvValue)}
+                                {cmvValue <= cmvTarget && <TrendingDown className="w-3 h-3" />}
+                                {cmvValue > cmvAlert && <TrendingUp className="w-3 h-3" />}
+                            </div>
+                        }
+                    >
                         <div className="h-[300px] w-full">
                             {/* Explanation */}
                             <div className="absolute top-4 right-6 flex items-center gap-4 text-xs z-10">
