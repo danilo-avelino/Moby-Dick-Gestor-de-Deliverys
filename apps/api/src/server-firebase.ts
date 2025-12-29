@@ -8,7 +8,6 @@ export const api = onRequest({
     region: 'us-east4',
     memory: "1GiB",
     timeoutSeconds: 60,
-    invoker: 'public',
 }, async (req, res) => {
     try {
         if (!serverPromise) {

@@ -1,6 +1,6 @@
 
 import { prisma } from 'database';
-import { Indicator, GoalType } from '@prisma/client';
+import { Indicator } from '@prisma/client';
 import dayjs from 'dayjs';
 
 /**
@@ -18,23 +18,17 @@ export async function calculateIndicatorValue(indicator: Indicator): Promise<num
 
     switch (indicator.type) {
         case 'STOCK_CMV':
-        case 'STOCK_CMV' as any:
             return calculateStockCMV(indicator.costCenterId, startDate, endDate);
 
         case 'PURCHASING':
-        case 'PURCHASING' as any:
             return calculatePurchasing(indicator.costCenterId, startDate, endDate);
 
         case 'RECIPE_COVERAGE':
-        case 'RECIPE_COVERAGE' as any:
             return calculateRecipeCoverage(indicator.costCenterId);
 
         case 'WASTE_PERCENT':
-        case 'WASTE_PERCENT' as any:
             return calculateWastePercent(indicator.costCenterId, startDate, endDate);
 
-        case 'REVENUE':
-        case 'REVENUE_TARGET' as any:
         case 'REVENUE':
         case 'REVENUE_TARGET' as any:
             return calculateRevenue(indicator.costCenterId, startDate, endDate);
@@ -64,11 +58,11 @@ async function calculateStockCMV(costCenterId: string, startDate: Date, endDate:
     const revenueAgg = await prisma.revenue.aggregate({
         where: {
             costCenterId,
-            startDate: { gte: startDate }
+            startDate: { gte: startDate, lte: endDate }
         },
         _sum: { totalAmount: true }
     });
-    const totalRevenue = revenueAgg._sum.totalAmount || 0;
+    const totalRevenue = revenueAgg._sum?.totalAmount || 0;
 
     if (totalRevenue === 0) return 0;
 
@@ -83,7 +77,7 @@ async function calculateStockCMV(costCenterId: string, startDate: Date, endDate:
         },
         _sum: { totalCost: true }
     });
-    const totalCost = outflowsAgg._sum.totalCost || 0;
+    const totalCost = outflowsAgg._sum?.totalCost || 0;
 
     return (totalCost / totalRevenue) * 100;
 }
@@ -129,7 +123,7 @@ async function calculateRecipeCoverage(costCenterId: string): Promise<number> {
 
     const totalItems = await prisma.menuItem.count({
         where: {
-            categoryId: { in: categoryIds },
+            menuCategoryId: { in: categoryIds },
             isActive: true
         }
     });
@@ -138,7 +132,7 @@ async function calculateRecipeCoverage(costCenterId: string): Promise<number> {
 
     const itemsWithRecipe = await prisma.menuItem.count({
         where: {
-            categoryId: { in: categoryIds },
+            menuCategoryId: { in: categoryIds },
             isActive: true,
             recipeId: { not: null }
         }

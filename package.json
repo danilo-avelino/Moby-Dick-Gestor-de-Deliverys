@@ -12,7 +12,6 @@
         "db:push": "turbo run db:push --filter=database",
         "db:seed": "turbo run db:seed --filter=database",
         "db:studio": "turbo run db:studio --filter=database",
-        "postinstall": "turbo run db:generate",
         "clean": "turbo run clean && rimraf node_modules",
         "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
     },

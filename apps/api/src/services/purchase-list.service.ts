@@ -7,15 +7,25 @@ export class PurchaseListService {
      * Returns products where currentStock < reorderPoint
      */
     static async generatePurchaseList(
-        restaurantId: string,
+        costCenterId: string,
         userId: string,
         triggerType: PurchaseListTriggerType,
         description?: string,
         notes?: string
     ) {
-        // Initialize where clause
+        // Get the cost center to find the organizationId
+        const costCenter = await prisma.costCenter.findUnique({
+            where: { id: costCenterId },
+            select: { organizationId: true }
+        });
+
+        if (!costCenter?.organizationId) {
+            throw new Error('Centro de custo não encontrado ou sem organização associada');
+        }
+
+        // Initialize where clause - Products are scoped by organizationId
         const whereClause: Prisma.ProductWhereInput = {
-            restaurantId,
+            organizationId: costCenter.organizationId,
             isActive: true,
             OR: [
                 { reorderPoint: { gt: 0 } },
@@ -63,7 +73,7 @@ export class PurchaseListService {
         // Create the purchase list with items
         const purchaseList = await prisma.purchaseList.create({
             data: {
-                restaurantId,
+                costCenterId,
                 triggerType,
                 description: description || `Lista de Compras - ${new Date().toLocaleDateString('pt-BR')}`,
                 notes,
@@ -90,10 +100,10 @@ export class PurchaseListService {
     }
 
     /**
-     * Get all purchase lists for a restaurant
+     * Get all purchase lists for a cost center
      */
     static async getPurchaseLists(
-        restaurantId: string,
+        costCenterId: string,
         options?: {
             status?: PurchaseListStatus;
             triggerType?: PurchaseListTriggerType;
@@ -105,7 +115,7 @@ export class PurchaseListService {
     ) {
         const { status, triggerType, startDate, endDate, page = 1, limit = 20 } = options || {};
 
-        const where: any = { restaurantId };
+        const where: any = { costCenterId };
 
         if (status) where.status = status;
         if (triggerType) where.triggerType = triggerType;
@@ -143,9 +153,9 @@ export class PurchaseListService {
     /**
      * Get a single purchase list with all items
      */
-    static async getPurchaseListById(listId: string, restaurantId: string) {
+    static async getPurchaseListById(listId: string, costCenterId: string) {
         return prisma.purchaseList.findFirst({
-            where: { id: listId, restaurantId },
+            where: { id: listId, costCenterId },
             include: {
                 items: {
                     include: {
@@ -292,16 +302,16 @@ export class PurchaseListService {
     }
 
     /**
-     * Get or create purchase config for restaurant
+     * Get or create purchase config for cost center
      */
-    static async getConfig(restaurantId: string) {
+    static async getConfig(costCenterId: string) {
         let config = await prisma.purchaseConfig.findUnique({
-            where: { restaurantId }
+            where: { costCenterId }
         });
 
         if (!config) {
             config = await prisma.purchaseConfig.create({
-                data: { restaurantId }
+                data: { costCenterId }
             });
         }
 
@@ -312,7 +322,7 @@ export class PurchaseListService {
      * Update purchase config
      */
     static async updateConfig(
-        restaurantId: string,
+        costCenterId: string,
         data: {
             triggerPostInventory?: boolean;
             triggerCriticalStock?: boolean;
@@ -324,8 +334,8 @@ export class PurchaseListService {
         }
     ) {
         return prisma.purchaseConfig.upsert({
-            where: { restaurantId },
-            create: { restaurantId, ...data },
+            where: { costCenterId },
+            create: { costCenterId, ...data },
             update: data
         });
     }
