@@ -31,6 +31,7 @@ const createProductSchema = z.object({
     reorderPoint: optionalNumber,
     manualReorderPoint: optionalNumber,
     isPerishable: z.boolean().optional(),
+    isCmv: z.boolean().optional(),
     shelfLifeDays: optionalPositiveNumber,
     defaultSupplierId: z.preprocess((val) => (val === '' || val === null ? undefined : val), z.string().optional()),
     leadTimeDays: z.preprocess(
@@ -417,7 +418,7 @@ export async function productRoutes(fastify: FastifyInstance) {
         const allowedFields = [
             'sku', 'barcode', 'name', 'description', 'categoryId', 'baseUnit',
             'lastPurchasePrice', 'unitType', 'conversions', 'reorderPoint', 'manualReorderPoint',
-            'isPerishable', 'shelfLifeDays', 'defaultSupplierId', 'leadTimeDays',
+            'isPerishable', 'isCmv', 'shelfLifeDays', 'defaultSupplierId', 'leadTimeDays',
             'imageUrl', 'isActive'
         ];
 
