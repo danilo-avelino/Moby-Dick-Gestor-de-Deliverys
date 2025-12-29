@@ -40,14 +40,34 @@ export async function indicatorRoutes(fastify: FastifyInstance) {
             return [];
         }
 
+        // Auto-seed standard indicators if missing for this cost center (ALWAYS, not just for configurers)
+        const existingIndicators = await prisma.indicator.findMany({
+            where: { costCenterId },
+            select: { type: true }
+        });
+        const existingTypes = new Set(existingIndicators.map(i => i.type));
+        const missing = STANDARD_INDICATORS.filter(std => !existingTypes.has(std.type as any));
+
+        if (missing.length > 0) {
+            for (const std of missing) {
+                await prisma.indicator.create({
+                    data: {
+                        ...std,
+                        costCenterId,
+                        targetValue: std.targetValue || 0,
+                        periodStart: new Date(),
+                        periodEnd: new Date(),
+                        isActive: false // Start inactive so user can enable
+                    } as any
+                });
+            }
+        }
+
         const canConfigure = permissions?.indicators?.configure;
 
         // Build Filter
         const whereClause: any = {
             costCenterId, // Scoped to Cost Center
-            // If not configurer (Staff), logic:
-            // "Interessados: Apenas visualizam. Usuário não selecionado não vê."
-            // So if !canConfigure, must be in access list.
         };
 
         if (!canConfigure) {
@@ -64,7 +84,6 @@ export async function indicatorRoutes(fastify: FastifyInstance) {
                 owner: {
                     select: { id: true, firstName: true, lastName: true, avatarUrl: true }
                 },
-                // Include latest result? Or just basic info?
                 results: {
                     orderBy: { date: 'desc' },
                     take: 1
@@ -75,32 +94,6 @@ export async function indicatorRoutes(fastify: FastifyInstance) {
             },
             orderBy: { name: 'asc' }
         });
-
-        // Auto-seed missing standard indicators if user can configure
-        if (canConfigure) {
-            const existingTypes = new Set(indicators.map(i => i.type));
-            const missing = STANDARD_INDICATORS.filter(std => !existingTypes.has(std.type as any));
-
-            if (missing.length > 0) {
-                // Create missing indicators
-                // We do this individually or createMany. createMany doesn't return created items easily in all SQLs? 
-                // Using transaction or loop. Loop is fine for 5 items.
-                for (const std of missing) {
-                    const created = await prisma.indicator.create({
-                        data: {
-                            ...std,
-                            costCenterId,
-                            targetValue: std.targetValue || 0,
-                            periodStart: new Date(), // Improve this
-                            periodEnd: new Date(),   // Improve this
-                            isActive: false // Start inactive so user can enable
-                        } as any
-                    });
-                    // Add to list to return immediately
-                    indicators.push(created as any);
-                }
-            }
-        }
 
         // Calculate current values for dynamic indicators
         const indicatorsWithValues = await Promise.all(indicators.map(async (ind) => {
