@@ -27,6 +27,7 @@ interface PurchaseListItem {
         baseUnit: string;
         imageUrl: string | null;
         currentStock: number;
+        lastPurchasePrice: number;
         category: {
             id: string;
             name: string;
@@ -66,6 +67,7 @@ export default function PurchaseListDetail() {
     const queryClient = useQueryClient();
     const [expandedItem, setExpandedItem] = useState<string | null>(null);
     const [confirmQuantity, setConfirmQuantity] = useState<number>(0);
+    const [confirmPrice, setConfirmPrice] = useState<number>(0);
 
     // Fetch list details
     const { data: list, isLoading } = useQuery<PurchaseListDetail>({
@@ -79,9 +81,10 @@ export default function PurchaseListDetail() {
 
     // Confirm item mutation
     const confirmMutation = useMutation({
-        mutationFn: async ({ itemId, quantity }: { itemId: string; quantity: number }) => {
+        mutationFn: async ({ itemId, quantity, price }: { itemId: string; quantity: number; price: number }) => {
             await api.post(`/api/purchase-lists/${id}/items/${itemId}/confirm`, {
-                confirmedQuantity: quantity
+                confirmedQuantity: quantity,
+                purchasePrice: price > 0 ? price : undefined
             });
         },
         onSuccess: () => {
@@ -303,6 +306,7 @@ export default function PurchaseListDetail() {
                                                         if (item.status === 'PENDENTE') {
                                                             setExpandedItem(isExpanded ? null : item.id);
                                                             setConfirmQuantity(item.suggestedQuantity);
+                                                            setConfirmPrice(item.product.lastPurchasePrice || 0);
                                                         }
                                                     }}
                                                 >
@@ -365,7 +369,7 @@ export default function PurchaseListDetail() {
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-end gap-4">
-                                                                <div className="flex-1">
+                                                                <div>
                                                                     <label className="block text-sm text-gray-400 mb-1">
                                                                         Quantidade que chegou
                                                                     </label>
@@ -381,6 +385,20 @@ export default function PurchaseListDetail() {
                                                                         <span className="text-gray-400">{item.unitSnapshot}</span>
                                                                     </div>
                                                                 </div>
+                                                                <div>
+                                                                    <label className="block text-sm text-gray-400 mb-1">
+                                                                        Preço de Compra (R$)
+                                                                    </label>
+                                                                    <input
+                                                                        type="number"
+                                                                        value={confirmPrice}
+                                                                        onChange={(e) => setConfirmPrice(parseFloat(e.target.value) || 0)}
+                                                                        className="input w-32"
+                                                                        min={0}
+                                                                        step={0.01}
+                                                                        placeholder="0.00"
+                                                                    />
+                                                                </div>
                                                                 <div className="flex gap-2">
                                                                     <button
                                                                         onClick={(e) => {
@@ -395,7 +413,7 @@ export default function PurchaseListDetail() {
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            confirmMutation.mutate({ itemId: item.id, quantity: confirmQuantity });
+                                                                            confirmMutation.mutate({ itemId: item.id, quantity: confirmQuantity, price: confirmPrice });
                                                                         }}
                                                                         disabled={confirmMutation.isPending || confirmQuantity <= 0}
                                                                         className="btn-primary flex items-center gap-2"

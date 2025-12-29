@@ -166,6 +166,7 @@ export class PurchaseListService {
                                 baseUnit: true,
                                 imageUrl: true,
                                 currentStock: true,
+                                lastPurchasePrice: true,
                                 category: { select: { id: true, name: true } }
                             }
                         },
@@ -199,7 +200,8 @@ export class PurchaseListService {
     static async confirmItemArrival(
         itemId: string,
         confirmedQuantity: number,
-        userId: string
+        userId: string,
+        purchasePrice?: number
     ) {
         // Get the item with product info
         const item = await prisma.purchaseListItem.findUnique({
@@ -256,12 +258,21 @@ export class PurchaseListService {
                 }
             });
 
-            // Update product stock
+            // Build product update data
+            const productUpdateData: any = {
+                currentStock: stockAfter
+            };
+
+            // Update lastPurchasePrice and lastPurchaseDate if purchasePrice is provided
+            if (purchasePrice !== undefined && purchasePrice > 0) {
+                productUpdateData.lastPurchasePrice = purchasePrice;
+                productUpdateData.lastPurchaseDate = new Date();
+            }
+
+            // Update product stock and price
             await tx.product.update({
                 where: { id: item.productId },
-                data: {
-                    currentStock: stockAfter
-                }
+                data: productUpdateData
             });
 
             // Check if all items in the list are confirmed

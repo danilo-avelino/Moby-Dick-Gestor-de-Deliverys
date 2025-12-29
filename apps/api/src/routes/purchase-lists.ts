@@ -12,7 +12,8 @@ const generateListSchema = z.object({
 });
 
 const confirmItemSchema = z.object({
-    confirmedQuantity: z.number().min(0)
+    confirmedQuantity: z.number().min(0),
+    purchasePrice: z.number().min(0).optional()
 });
 
 const updateStatusSchema = z.object({
@@ -142,7 +143,8 @@ export async function purchaseListRoutes(fastify: FastifyInstance) {
             const item = await PurchaseListService.confirmItemArrival(
                 request.params.itemId,
                 body.confirmedQuantity,
-                request.user!.id
+                request.user!.id,
+                body.purchasePrice
             );
 
             return reply.send({ success: true, data: item });
