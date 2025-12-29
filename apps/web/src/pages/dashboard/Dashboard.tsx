@@ -152,9 +152,9 @@ export default function Dashboard() {
 
                     <BentoCard colSpan={1} className="min-h-[160px]" noPadding>
                         <ModernKPICard
-                            title="CMV (Compras/Fat)"
-                            value={formatPercent(cmvValue)}
-                            subtitle={`Compras: ${formatCurrency(purchasesMonth)}`}
+                            title="Compras (CMV)"
+                            value={formatCurrency(purchasesMonth)}
+                            subtitle={`CMV: ${formatPercent(cmvValue)}`}
                             icon={ShoppingBag}
                             variant="cmv"
                             trend={cmvValue > cmvAlert ? "Alerta: Alto" : "Dentro da meta"}
