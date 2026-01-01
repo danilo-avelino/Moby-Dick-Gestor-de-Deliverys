@@ -46,6 +46,15 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         const endOfSameMonthLastYear = new Date(now.getFullYear() - 1, now.getMonth() + 1, 0);
         endOfSameMonthLastYear.setHours(23, 59, 59, 999);
 
+        // Determine "Same Period" for accurate comparison
+        // If today is 15th, compare vs 1st-15th of last month.
+        const daysPassed = now.getDate();
+        const daysInLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+        const compareDay = Math.min(daysPassed, daysInLastMonth);
+
+        const endOfObservedLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, compareDay);
+        endOfObservedLastMonth.setHours(23, 59, 59, 999);
+
         // Fetch Data Parallelly
         const [
             yesterdayRevenue,
@@ -75,12 +84,12 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                     startDate: { gte: startOfMonth, lte: endOfMonth }
                 }
             }),
-            // 3. Last Month Revenue
+            // 3. Last Month Revenue (Same Period)
             prisma.revenue.aggregate({
                 _sum: { totalAmount: true },
                 where: {
                     costCenterId,
-                    startDate: { gte: startOfLastMonth, lte: endOfLastMonth }
+                    startDate: { gte: startOfLastMonth, lte: endOfObservedLastMonth }
                 }
             }),
             // 4. Last Year Same Month Revenue
@@ -88,7 +97,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                 _sum: { totalAmount: true },
                 where: {
                     costCenterId,
-                    startDate: { gte: startOfSameMonthLastYear, lte: endOfSameMonthLastYear }
+                    startDate: { gte: startOfSameMonthLastYear, lte: new Date(now.getFullYear() - 1, now.getMonth(), compareDay, 23, 59, 59, 999) }
                 }
             }),
             // 5. Waste This Month (StockMovement type WASTE)
@@ -113,7 +122,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                     where: {
                         type: 'WASTE',
                         organizationId: orgId,
-                        createdAt: { gte: startOfLastMonth, lte: endOfLastMonth }
+                        createdAt: { gte: startOfLastMonth, lte: endOfObservedLastMonth }
                     }
                 });
             })(),
@@ -151,7 +160,7 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             // 10. Cost Center Targets
             prisma.costCenter.findUnique({
                 where: { id: costCenterId },
-                select: { targetCmvPercent: true, alertCmvThreshold: true }
+                select: { targetCmvPercent: true, alertCmvThreshold: true, goalsConfig: true }
             })
         ]);
 
@@ -178,8 +187,14 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
             forecast = currentMonthTotal;
         }
 
-        // Calculate Trends
-        const revenueTrend = lastMonthTotal > 0 ? ((currentMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0;
+        // Calculate Trends (Proportional using Daily Averages)
+        const dailyAvgCurrent = currentMonthTotal / daysPassed;
+        const dailyAvgLast = lastMonthTotal / compareDay;
+
+        const revenueTrend = dailyAvgLast > 0 ? ((dailyAvgCurrent - dailyAvgLast) / dailyAvgLast) * 100 : 0;
+
+        // Correct Waste Trend Period
+        // (already sum of same period if we match the query change below)
         const wasteTrend = lastMonthWasteTotal > 0 ? ((wasteMonthTotal - lastMonthWasteTotal) / lastMonthWasteTotal) * 100 : 0;
 
         return reply.send({
@@ -200,11 +215,12 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
                     thisMonth: wasteMonthTotal,
                     trend: wasteTrend
                 },
-                stockAccuracy: (inventorySession._avg.precision || 0) * 100,
+                stockAccuracy: (inventorySession._avg.precision !== null) ? inventorySession._avg.precision : 100,
                 lastInventoryDate: lastInventory?.endDate || null,
                 targets: {
                     cmv: costCenter?.targetCmvPercent || 30,
-                    cmvAlert: costCenter?.alertCmvThreshold || 35
+                    cmvAlert: costCenter?.alertCmvThreshold || 35,
+                    stockAccuracy: (costCenter?.goalsConfig as any)?.stockAccuracyTarget || 95
                 }
             }
         });
@@ -374,5 +390,284 @@ export async function dashboardRoutes(fastify: FastifyInstance) {
         }
 
         return reply.send({ success: true, data: results });
+    });
+
+    // Save manual indicator reading
+    fastify.post<{ Body: { type: string; value: number; month: string } }>('/manual-readings', {
+        preHandler: [requireCostCenter],
+        schema: {
+            tags: ['Dashboard'],
+            summary: 'Save manual indicator reading for a specific month',
+            body: {
+                type: 'object',
+                required: ['type', 'value', 'month'],
+                properties: {
+                    type: { type: 'string' }, // e.g., 'ifoodRating'
+                    value: { type: 'number' },
+                    month: { type: 'string' } // 'YYYY-MM'
+                }
+            }
+        }
+    }, async (request, reply) => {
+        const { type, value, month } = request.body;
+        const { costCenterId } = request.user!;
+
+        // Get existing manualReadings
+        const cc = await prisma.costCenter.findUnique({
+            where: { id: costCenterId },
+            select: { manualReadings: true }
+        });
+
+        const readings = (cc?.manualReadings as any) || {};
+
+        // Initialize type object if needed
+        if (!readings[type]) readings[type] = {};
+
+        // Set value
+        readings[type][month] = value;
+
+        await prisma.costCenter.update({
+            where: { id: costCenterId },
+            data: { manualReadings: readings }
+        });
+
+        return reply.send({ success: true });
+    });
+
+    // Get goals/targets configuration
+    fastify.get('/goals', {
+        preHandler: [requireCostCenter],
+        schema: {
+            tags: ['Dashboard'],
+            summary: 'Get goals/targets configuration for the cost center',
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!request.user || !request.user.costCenterId) {
+            return reply.send({ success: false, error: 'No cost center selected' });
+        }
+
+        const costCenter = await prisma.costCenter.findUnique({
+            where: { id: request.user.costCenterId },
+            select: {
+                id: true,
+                name: true,
+                targetCmvPercent: true,
+                alertCmvThreshold: true,
+                goalsConfig: true,
+            }
+        });
+
+        if (!costCenter) {
+            return reply.status(404).send({ success: false, error: 'Cost center not found' });
+        }
+
+        const goalsConfig = (costCenter.goalsConfig as any) || {};
+
+        return reply.send({
+            success: true,
+            data: {
+                cmv: {
+                    target: costCenter.targetCmvPercent,
+                    alertThreshold: costCenter.alertCmvThreshold,
+                    monthly: goalsConfig.cmvMonthly || {},
+                },
+                stockAccuracy: {
+                    target: goalsConfig.stockAccuracyTarget || 95,
+                    monthly: goalsConfig.stockAccuracyMonthly || {},
+                },
+                revenue: {
+                    target: goalsConfig.revenueTarget || null,
+                    monthly: goalsConfig.revenueMonthly || {},
+                },
+                waste: {
+                    target: goalsConfig.wasteTarget || 3,
+                    alertThreshold: goalsConfig.wasteAlert || 5,
+                    monthly: goalsConfig.wasteMonthly || {},
+                },
+                recipeCoverage: {
+                    target: goalsConfig.recipeCoverageTarget || 100,
+                    monthly: goalsConfig.recipeCoverageMonthly || {},
+                },
+                purchasesRatio: {
+                    target: goalsConfig.purchasesRatioTarget || 100,
+                    alertThreshold: goalsConfig.purchasesRatioAlert || 110,
+                    monthly: goalsConfig.purchasesRatioMonthly || {},
+                },
+                ifoodRating: {
+                    target: goalsConfig.ifoodRatingTarget || 5,
+                    monthly: goalsConfig.ifoodRatingMonthly || {},
+                }
+            }
+        });
+    });
+
+    // Update goals/targets configuration
+    fastify.put<{
+        Body: {
+            cmv?: { target?: number; alertThreshold?: number; monthly?: Record<string, number> };
+            stockAccuracy?: { target?: number; monthly?: Record<string, number> };
+            revenue?: { target?: number; monthly?: Record<string, number> };
+            waste?: { target?: number; alertThreshold?: number; monthly?: Record<string, number> };
+            recipeCoverage?: { target?: number; monthly?: Record<string, number> };
+            purchasesRatio?: { target?: number; alertThreshold?: number; monthly?: Record<string, number> };
+            ifoodRating?: { target?: number; monthly?: Record<string, number> };
+        }
+    }>('/goals', {
+        preHandler: [requireCostCenter],
+        schema: {
+            tags: ['Dashboard'],
+            summary: 'Update goals/targets configuration for the cost center',
+            security: [{ bearerAuth: [] }],
+            body: {
+                type: 'object',
+                properties: {
+                    cmv: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0 },
+                            alertThreshold: { type: 'number', minimum: 0 },
+                            monthly: { type: 'object' }
+                        }
+                    },
+                    stockAccuracy: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0, maximum: 100 },
+                            monthly: { type: 'object' }
+                        }
+                    },
+                    revenue: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0 },
+                            monthly: { type: 'object' }
+                        }
+                    },
+                    waste: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0 },
+                            alertThreshold: { type: 'number', minimum: 0 },
+                            monthly: { type: 'object' }
+                        }
+                    },
+                    recipeCoverage: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0, maximum: 100 },
+                            monthly: { type: 'object' }
+                        }
+                    },
+                    purchasesRatio: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0 },
+                            alertThreshold: { type: 'number', minimum: 0 },
+                            monthly: { type: 'object' }
+                        }
+                    },
+                    ifoodRating: {
+                        type: 'object',
+                        properties: {
+                            target: { type: 'number', minimum: 0, maximum: 5 },
+                            monthly: { type: 'object' }
+                        }
+                    }
+                }
+            }
+        },
+    }, async (request: FastifyRequest<{
+        Body: {
+            cmv?: { target?: number; alertThreshold?: number; monthly?: Record<string, number> };
+            stockAccuracy?: { target?: number; monthly?: Record<string, number> };
+            revenue?: { target?: number; monthly?: Record<string, number> };
+            waste?: { target?: number; alertThreshold?: number; monthly?: Record<string, number> };
+            recipeCoverage?: { target?: number; monthly?: Record<string, number> };
+            purchasesRatio?: { target?: number; alertThreshold?: number; monthly?: Record<string, number> };
+            ifoodRating?: { target?: number; monthly?: Record<string, number> };
+        }
+    }>, reply: FastifyReply) => {
+        if (!request.user || !request.user.costCenterId) {
+            return reply.send({ success: false, error: 'No cost center selected' });
+        }
+
+        const { cmv, stockAccuracy, revenue, waste, recipeCoverage, purchasesRatio, ifoodRating } = request.body;
+
+        // First, get existing goalsConfig
+        const existing = await prisma.costCenter.findUnique({
+            where: { id: request.user.costCenterId },
+            select: { goalsConfig: true }
+        });
+
+        const existingConfig = (existing?.goalsConfig as any) || {};
+        const updateData: any = {};
+
+        if (cmv?.target !== undefined) {
+            updateData.targetCmvPercent = cmv.target;
+        }
+        if (cmv?.alertThreshold !== undefined) {
+            updateData.alertCmvThreshold = cmv.alertThreshold;
+        }
+
+        // Build updated goalsConfig
+        const newGoalsConfig = {
+            ...existingConfig,
+            // CMV
+            ...(cmv?.monthly && { cmvMonthly: cmv.monthly }),
+
+            // Stock Accuracy
+            ...(stockAccuracy?.target !== undefined && { stockAccuracyTarget: stockAccuracy.target }),
+            ...(stockAccuracy?.monthly && { stockAccuracyMonthly: stockAccuracy.monthly }),
+
+            // Revenue
+            ...(revenue?.target !== undefined && { revenueTarget: revenue.target }),
+            ...(revenue?.monthly && { revenueMonthly: revenue.monthly }),
+
+            // Waste
+            ...(waste?.target !== undefined && { wasteTarget: waste.target }),
+            ...(waste?.alertThreshold !== undefined && { wasteAlert: waste.alertThreshold }),
+            ...(waste?.monthly && { wasteMonthly: waste.monthly }),
+
+            // Recipe Coverage
+            ...(recipeCoverage?.target !== undefined && { recipeCoverageTarget: recipeCoverage.target }),
+            ...(recipeCoverage?.monthly && { recipeCoverageMonthly: recipeCoverage.monthly }),
+
+            // Purchases Ratio
+            ...(purchasesRatio?.target !== undefined && { purchasesRatioTarget: purchasesRatio.target }),
+            ...(purchasesRatio?.alertThreshold !== undefined && { purchasesRatioAlert: purchasesRatio.alertThreshold }),
+            ...(purchasesRatio?.monthly && { purchasesRatioMonthly: purchasesRatio.monthly }),
+
+            // iFood Rating
+            ...(ifoodRating?.target !== undefined && { ifoodRatingTarget: ifoodRating.target }),
+            ...(ifoodRating?.monthly && { ifoodRatingMonthly: ifoodRating.monthly }),
+        };
+
+        updateData.goalsConfig = newGoalsConfig;
+
+        const costCenter = await prisma.costCenter.update({
+            where: { id: request.user.costCenterId },
+            data: updateData,
+            select: {
+                id: true,
+                name: true,
+                targetCmvPercent: true,
+                alertCmvThreshold: true,
+                goalsConfig: true,
+            }
+        });
+
+        const goalsConfig = (costCenter.goalsConfig as any) || {};
+
+        return reply.send({
+            success: true,
+            data: {
+                cmv: {
+                    target: costCenter.targetCmvPercent,
+                    alertThreshold: costCenter.alertCmvThreshold,
+                    monthly: goalsConfig.cmvMonthly || {},
+                }
+            }
+        });
     });
 }
