@@ -12,7 +12,7 @@
         "build:firebase": "tsup",
         "start": "node dist/server.js",
         "clean": "rimraf dist .turbo",
-        "gcp-build": "prisma generate"
+        "gcp-build": "prisma generate --schema=./prisma/schema.prisma"
     },
     "dependencies": {
         "@anthropic-ai/sdk": "^0.71.2",
