@@ -98,6 +98,11 @@ export async function revenueRoutes(fastify: FastifyInstance) {
                 perms: request.user?.permissions?.allowedCostCenterIds
             });
 
+            if (!prisma.revenue) {
+                console.error('CRITICAL: prisma.revenue is undefined!', Object.keys(prisma));
+                throw new Error('Internal Configuration Error: Revenue model not found in Prisma Client');
+            }
+
             // Manual validation
             const payload = RevenueSchema.parse(request.body);
             const bodyCostCenterId = (request.body as any).costCenterId;
