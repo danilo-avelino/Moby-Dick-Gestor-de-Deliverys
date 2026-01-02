@@ -341,7 +341,7 @@ export class IntegrationManager {
     // --- Helpers ---
 
     private getIntegrationType(platform: string): IntegrationType {
-        const logisticsplatforms = ['foody', 'agilizone', 'saipos_logistics'];
+        const logisticsplatforms = ['agilizone', 'saipos_logistics'];
         return logisticsplatforms.includes(platform.toLowerCase()) ? 'logistics' : 'sales';
     }
 

@@ -28,7 +28,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const skip = (page - 1) * limit;
 
         const where: any = {
-            restaurantId: request.user!.costCenterId,
+            costCenterId: request.user!.costCenterId,
             OR: [
                 { expiresAt: null },
                 { expiresAt: { gt: new Date() } },
@@ -99,14 +99,14 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const [total, critical] = await Promise.all([
             prisma.alert.count({
                 where: {
-                    restaurantId: request.user!.costCenterId,
+                    costCenterId: request.user!.costCenterId,
                     isRead: false,
                     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
                 },
             }),
             prisma.alert.count({
                 where: {
-                    restaurantId: request.user!.costCenterId,
+                    costCenterId: request.user!.costCenterId,
                     isRead: false,
                     severity: 'CRITICAL',
                     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
@@ -134,7 +134,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const alert = await prisma.alert.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
             },
         });
 
@@ -170,7 +170,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const result = await prisma.alert.updateMany({
             where: {
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
                 isRead: false,
             },
             data: {
@@ -200,7 +200,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const alert = await prisma.alert.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
             },
         });
 
@@ -230,7 +230,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const rules = await prisma.alertRule.findMany({
-            where: { restaurantId: request.user!.costCenterId },
+            where: { costCenterId: request.user!.costCenterId },
             orderBy: { type: 'asc' },
         });
 
@@ -263,7 +263,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
 
         const rule = await prisma.alertRule.create({
             data: {
-                restaurantId: request.user!.costCenterId!,
+                costCenterId: request.user!.costCenterId!,
                 type: type as any,
                 name,
                 conditions,
@@ -294,7 +294,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
         const existing = await prisma.alertRule.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
             },
         });
 

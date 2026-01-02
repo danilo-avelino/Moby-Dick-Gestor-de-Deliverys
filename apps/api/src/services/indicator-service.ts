@@ -36,6 +36,8 @@ export async function calculateIndicatorValue(indicator: Indicator): Promise<num
         case 'STOCK_ACCURACY' as any:
             return calculateStockAccuracy(indicator.costCenterId, startDate, endDate);
 
+        case 'MANUAL_RATING' as any:
+            return calculateManualRating(indicator.costCenterId, startDate);
 
         default:
             return indicator.currentValue || 0;
@@ -187,4 +189,23 @@ async function calculateStockAccuracy(costCenterId: string, startDate: Date, end
         _avg: { precision: true }
     });
     return sessionsAgg._avg.precision || 0;
+}
+
+// Calculate manual rating from CostCenter JSON
+async function calculateManualRating(costCenterId: string, date: Date): Promise<number> {
+    const cc = await prisma.costCenter.findUnique({
+        where: { id: costCenterId },
+        select: { manualReadings: true }
+    });
+
+    if (!cc?.manualReadings) return 0;
+
+    const readings = cc.manualReadings as any;
+    const key = dayjs(date).format('YYYY-MM');
+
+    // For now assuming 'ifoodRating' is the primary manual rating.
+    // If we support multiple manual types, we might need a mapping based on indicator name or ID.
+    // But given the requirement "Nota iFood", let's map it.
+
+    return readings.ifoodRating?.[key] || 0;
 }

@@ -35,7 +35,7 @@ import NPS from './pages/nps/NPS';
 import ChefRequests from './pages/stock-requests/ChefRequests';
 import ManagerRequests from './pages/stock-requests/ManagerRequests';
 import UserManagement from './pages/admin/UserManagement';
-import RecentOrders from './pages/pdv/RecentOrders';
+import PdvDashboard from './pages/pdv/PdvDashboard';
 import NewOrder from './pages/pdv/NewOrder';
 import CashRegister from './pages/pdv/CashRegister';
 import OrderHistory from './pages/pdv/OrderHistory';
@@ -132,7 +132,7 @@ export default function App() {
                     <Route path="admin/users" element={<UserManagement />} />
 
                     {/* PDV Routes */}
-                    <Route path="pdv" element={<RecentOrders />} />
+                    <Route path="pdv" element={<PdvDashboard />} />
                     <Route path="pdv/new" element={<NewOrder />} />
                     <Route path="pdv/cash" element={<CashRegister />} />
                     <Route path="pdv/history" element={<OrderHistory />} />

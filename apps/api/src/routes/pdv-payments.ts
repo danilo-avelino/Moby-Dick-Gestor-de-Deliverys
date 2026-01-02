@@ -31,7 +31,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
         // Get order
         const where: any = { id: request.params.orderId };
         if (restaurantId) {
-            where.restaurantId = restaurantId;
+            where.costCenterId = restaurantId;
         }
 
         const order = await prisma.pdvOrder.findFirst({
@@ -93,7 +93,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
             // Register cash movement if there's an open cash session
             const cashSession = await tx.cashSession.findFirst({
                 where: {
-                    restaurantId: restaurantId!,
+                    costCenterId: restaurantId!,
                     status: 'ABERTO',
                 },
             });
@@ -159,7 +159,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.orderId };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({
@@ -211,7 +211,7 @@ export async function pdvPaymentsRoutes(fastify: FastifyInstance) {
             throw errors.notFound('Payment not found');
         }
 
-        if (request.user?.costCenterId && payment.order.restaurantId !== request.user.costCenterId) {
+        if (request.user?.costCenterId && payment.order.costCenterId !== request.user.costCenterId) {
             throw errors.forbidden('Access denied');
         }
 

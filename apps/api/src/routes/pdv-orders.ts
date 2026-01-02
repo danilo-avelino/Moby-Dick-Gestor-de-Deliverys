@@ -41,13 +41,13 @@ const updateStatusSchema = z.object({
 });
 
 // Helper to generate sequential order code
-async function generateOrderCode(restaurantId: string): Promise<string> {
+async function generateOrderCode(costCenterId: string): Promise<string> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const count = await prisma.pdvOrder.count({
         where: {
-            restaurantId,
+            costCenterId,
             createdAt: { gte: today },
         },
     });
@@ -77,9 +77,9 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
         // STRICT MULTI-TENANCY FILTER
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         } else if (request.user?.organizationId) {
-            where.restaurant = { organizationId: request.user.organizationId };
+            where.costCenter = { organizationId: request.user.organizationId };
         } else {
             return reply.send({ success: true, data: [] });
         }
@@ -145,9 +145,9 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
         // STRICT MULTI-TENANCY FILTER
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         } else if (request.user?.organizationId) {
-            where.restaurant = { organizationId: request.user.organizationId };
+            where.costCenter = { organizationId: request.user.organizationId };
         } else {
             // Return empty pagination
             return reply.send({
@@ -235,7 +235,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({
@@ -331,7 +331,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
             const newOrder = await tx.pdvOrder.create({
                 data: {
                     code,
-                    restaurantId,
+                    costCenterId: restaurantId,
                     orderType: body.orderType as any,
                     salesChannel: body.salesChannel as any,
                     customerId: body.customerId,
@@ -409,7 +409,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({ where });
@@ -514,7 +514,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const order = await prisma.pdvOrder.findFirst({ where });
@@ -577,7 +577,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
         const restaurantId = request.user?.costCenterId;
 
         if (!restaurantId) {
-            // Stats require restaurant context (or aggressive aggregation logic which is complex)
+            // Stats require cost center context
             // For now return zeros if no restaurant context
             return reply.send({
                 success: true,
@@ -595,7 +595,7 @@ export async function pdvOrdersRoutes(fastify: FastifyInstance) {
 
         const where: any = {
             createdAt: { gte: today },
-            restaurantId: restaurantId
+            costCenterId: restaurantId
         };
 
         const [

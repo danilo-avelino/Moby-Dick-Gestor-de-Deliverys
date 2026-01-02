@@ -124,9 +124,10 @@ export default function StockRequisitionModal({ isOpen, onClose }: Props) {
         },
         onSuccess: () => {
             toast.success('Requisição realizada com sucesso!');
-            // Invalidate queries
-            queryClient.invalidateQueries({ queryKey: ['stock'] });
-            queryClient.invalidateQueries({ queryKey: ['products'] });
+            // Invalidate queries with correct keys
+            queryClient.invalidateQueries({ queryKey: ['stock-summary'] });
+            queryClient.invalidateQueries({ queryKey: ['stock-movements'] });
+            queryClient.invalidateQueries({ queryKey: ['products-list'] });
             onClose();
             // Reset
             setSelectedCostCenterId('');

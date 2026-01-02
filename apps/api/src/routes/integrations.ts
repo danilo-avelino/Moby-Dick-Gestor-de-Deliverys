@@ -19,7 +19,7 @@ const PLATFORMS = {
     CONSUMER: { type: 'sales', name: 'Consumer', logo: '🛒', category: 'vendas', fields: ['apiToken'] },
     SAIPOS: { type: 'sales', name: 'Saipos', logo: '💳', category: 'vendas', fields: ['clientId', 'clientSecret'] },
     // Logistics platforms
-    FOODY: { type: 'logistics', name: 'Foody Delivery', logo: '🚚', category: 'logistica', fields: ['apiToken'] },
+    FOODY: { type: 'sales', name: 'Foody Delivery', logo: '🚚', category: 'vendas', fields: ['apiToken'] },
     AGILIZONE: { type: 'logistics', name: 'Agilizone', logo: '⚡', category: 'logistica', fields: ['merchantId', 'clientId', 'clientSecret'] },
     SAIPOS_LOGISTICS: { type: 'logistics', name: 'Saipos Logística', logo: '📦', category: 'logistica', fields: ['clientId', 'clientSecret'] },
 } as const;

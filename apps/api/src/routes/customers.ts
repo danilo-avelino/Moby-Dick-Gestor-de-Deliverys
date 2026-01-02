@@ -48,7 +48,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
         const where: any = { isActive: true };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         if (request.query.search) {
@@ -104,7 +104,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({
@@ -154,7 +154,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
         const customer = await prisma.customer.create({
             data: {
-                restaurantId: request.user!.costCenterId!,
+                costCenterId: request.user!.costCenterId!,
                 ...body,
             },
         });
@@ -184,7 +184,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const existing = await prisma.customer.findFirst({ where });
@@ -222,7 +222,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({ where });
@@ -270,7 +270,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
 
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({ where });
@@ -322,7 +322,7 @@ export async function customersRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const customer = await prisma.customer.findFirst({ where });

@@ -20,6 +20,7 @@ export default function Products() {
 
     const [search, setSearch] = useState('');
     const [categoryId, setCategoryId] = useState('all');
+    const [limit, setLimit] = useState(50); // Initial limit increased to 50
     const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
     const [showDetailsModal, setShowDetailsModal] = useState(false);
     const [showCalibrationWarning, setShowCalibrationWarning] = useState(false);
@@ -63,10 +64,11 @@ export default function Products() {
 
     // Queries
     const { data: productsData, isLoading: isLoadingProducts, refetch: refetchProducts, error: productsError, isError: isProductsError } = useQuery({
-        queryKey: ['products', search, categoryId],
+        queryKey: ['products', search, categoryId, limit], // Include limit in query key
         queryFn: () => api.get('/api/products', {
             params: {
                 search,
+                limit, // Use dynamic limit
                 categoryId: categoryId !== 'all' ? categoryId : undefined,
             }
         }).then(r => r.data),
@@ -131,9 +133,36 @@ export default function Products() {
 
     const products = productsData?.data?.data || [];
     const isLoading = isLoadingProducts;
+    const pagination = productsData?.data?.pagination;
+
+    // Helper to calculate stock urgency ratio
+    // Lower ratio = Higher urgency (e.g. 0 stock with RP 10 = ratio 0)
+    const getStockRatio = (product: any) => {
+        const reorderPoint = product.manualReorderPoint ?? product.reorderPoint ?? 0;
+
+        // If product has 0 stock, even if no RP, it should be prioritized if it's not inactive?
+        // But requested logic is "comparison with reorder point".
+
+        // Items with reorder point set should be prioritized based on how close they are to 0.
+        if (reorderPoint > 0) {
+            return product.currentStock / reorderPoint;
+        }
+
+        // Items without reorder point but low stock (e.g. 0) might technically be urgent if used,
+        // but without RP we assume less urgency than those WITH RP defined.
+        // We give them a high ratio to sink them, but keep them sorted by stock amount.
+        return 1000 + product.currentStock;
+    };
+
+    // Smart Sort: Prioritize low stock items
+    const sortedProducts = [...products].sort((a: any, b: any) => {
+        const ratioA = getStockRatio(a);
+        const ratioB = getStockRatio(b);
+        return ratioA - ratioB;
+    });
 
     // Filter products based on URL parameter
-    const filteredProducts = products.filter((product: any) => {
+    const filteredProducts = sortedProducts.filter((product: any) => {
         if (filterParam === 'lowStock') {
             const reorderPoint = product.reorderPoint || 0;
             return reorderPoint > 0 && product.currentStock < (reorderPoint * 0.2);
@@ -197,6 +226,7 @@ export default function Products() {
                     onChange={(e) => setCategoryId(e.target.value)}
                 >
                     <option value="all">Todas as Categorias</option>
+                    <option value="uncategorized">Sem Categoria</option>
                     {(categories || []).map((cat: any) => (
                         <option key={cat.id} value={cat.id}>{cat.name}</option>
                     ))}
@@ -263,7 +293,6 @@ export default function Products() {
 
             {/* Products Grid */}
             {isLoading ? (
-                // ... loading state
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[...Array(6)].map((_, i) => (
                         <div key={i} className="glass-card animate-pulse">
@@ -273,140 +302,170 @@ export default function Products() {
                     ))}
                 </div>
             ) : filteredProducts.length === 0 ? (
-                // ... empty state
                 <div className="glass-card text-center py-12">
-                    {/* ... */}
+                    <Package className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                    <p className="text-gray-400 text-lg">Nenhum produto encontrado</p>
+                    <p className="text-gray-500 text-sm mt-1">
+                        Tente ajustar os filtros ou adicione um novo produto
+                    </p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredProducts.map((product: any) => (
-                        <div
-                            key={product.id}
-                            className="card p-5 group hover:border-primary-500/30 transition-all cursor-pointer relative"
-                            onClick={(e) => {
-                                // Prevent opening when clicking specific action buttons
-                                if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('button')) return;
-                                setSelectedProductId(product.id);
-                                setShowDetailsModal(true);
-                            }}
-                        >
-                            <div className="flex items-start justify-between mb-3">
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <h3 className="font-semibold text-white truncate">{product.name}</h3>
-                                        {product.currentStock <= (product.manualReorderPoint ?? product.reorderPoint ?? 0) && (
-                                            <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
-                                        )}
+                <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filteredProducts.map((product: any) => (
+                            <div
+                                key={product.id}
+                                className="card p-5 group hover:border-primary-500/30 transition-all cursor-pointer relative"
+                                onClick={(e) => {
+                                    // Prevent opening when clicking specific action buttons
+                                    if ((e.target as HTMLElement).closest('a') || (e.target as HTMLElement).closest('button')) return;
+                                    setSelectedProductId(product.id);
+                                    setShowDetailsModal(true);
+                                }}
+                            >
+                                <div className="flex items-start justify-between mb-3">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <h3 className="font-semibold text-white truncate">{product.name}</h3>
+                                            {product.currentStock <= (product.manualReorderPoint ?? product.reorderPoint ?? 0) && (product.manualReorderPoint ?? product.reorderPoint ?? 0) > 0 && (
+                                                <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            {product.sku && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
+                                                    {product.sku}
+                                                </span>
+                                            )}
+                                            {/* Stock Priority Badge for debugging/info */}
+                                            {/* <span className="text-xs text-gray-500">
+                                                Ratio: {getStockRatio(product).toFixed(2)}
+                                            </span> */}
+                                            {product.countsCMV && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
+                                                    <DollarSign className="w-3 h-3 inline mr-1" />
+                                                    CMV
+                                                </span>
+                                            )}
+                                            {product.isPerishable && (
+                                                <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
+                                                    <Calendar className="w-3 h-3 inline mr-1" />
+                                                    Perecível
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        {/* ... badges ... */}
-                                        {product.sku && (
-                                            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-300">
-                                                {product.sku}
-                                            </span>
-                                        )}
-                                        {product.countsCMV && (
-                                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                                                <DollarSign className="w-3 h-3 inline mr-1" />
-                                                CMV
-                                            </span>
-                                        )}
-                                        {product.isPerishable && (
-                                            <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-                                                <Calendar className="w-3 h-3 inline mr-1" />
-                                                Perecível
-                                            </span>
-                                        )}
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate(`/products/${product.id}`);
+                                        }}
+                                        className="p-2 hover:bg-white/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <Edit className="w-4 h-4 text-gray-400" />
+                                    </button>
+                                </div>
+
+                                {/* Category */}
+                                {product.category && (
+                                    <div className="flex items-center gap-1 text-xs text-gray-400 mb-3">
+                                        <Tag className="w-3 h-3" />
+                                        {product.category.name}
                                     </div>
-                                </div>
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigate(`/products/${product.id}`);
-                                    }}
-                                    className="p-2 hover:bg-white/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <Edit className="w-4 h-4 text-gray-400" />
-                                </button>
-                            </div>
+                                )}
 
-                            {/* ... Category, Stats, Progress Bar ... */}
-                            {product.category && (
-                                <div className="flex items-center gap-1 text-xs text-gray-400 mb-3">
-                                    <Tag className="w-3 h-3" />
-                                    {product.category.name}
-                                </div>
-                            )}
-
-                            <div className="grid grid-cols-3 gap-2 mb-3">
-                                <div className="p-2 rounded-lg bg-white/5">
-                                    <p className="text-xs text-gray-500 mb-0.5">Estoque</p>
-                                    <p className={`font-semibold text-sm ${product.currentStock <= (product.manualReorderPoint ?? product.reorderPoint ?? 0) ? 'text-yellow-400' : 'text-white'}`}>
-                                        {formatNumber(product.currentStock)} {product.baseUnit}
-                                    </p>
-                                </div>
-                                <div className="p-2 rounded-lg bg-white/5">
-                                    <p className="text-xs text-gray-500 mb-0.5">Custo</p>
-                                    <p className="font-semibold text-sm text-white">{formatCurrency(product.avgCost)}</p>
-                                </div>
-                                <div className="p-2 rounded-lg bg-white/5">
-                                    <p className="text-xs text-gray-500 mb-0.5">Autonomia</p>
-                                    {product.autonomyDays !== null ? (
-                                        <p className={`font-semibold text-sm ${product.autonomyDays <= 3 ? 'text-red-400' :
-                                            product.autonomyDays <= 7 ? 'text-yellow-400' :
-                                                'text-green-400'
-                                            }`}>
-                                            {product.autonomyDays} dias
+                                <div className="grid grid-cols-3 gap-2 mb-3">
+                                    <div className="p-2 rounded-lg bg-white/5">
+                                        <p className="text-xs text-gray-500 mb-0.5">Estoque</p>
+                                        <p className={`font-semibold text-sm ${product.currentStock <= (product.manualReorderPoint ?? product.reorderPoint ?? 0) && (product.manualReorderPoint ?? product.reorderPoint ?? 0) > 0 ? 'text-yellow-400' : 'text-white'}`}>
+                                            {formatNumber(product.currentStock)} {product.baseUnit}
                                         </p>
-                                    ) : (
-                                        <p className="font-semibold text-sm text-gray-500">--</p>
-                                    )}
+                                    </div>
+                                    <div className="p-2 rounded-lg bg-white/5">
+                                        <p className="text-xs text-gray-500 mb-0.5">Custo</p>
+                                        <p className="font-semibold text-sm text-white">{formatCurrency(product.avgCost)}</p>
+                                    </div>
+                                    <div className="p-2 rounded-lg bg-white/5">
+                                        <p className="text-xs text-gray-500 mb-0.5">Autonomia</p>
+                                        {product.autonomyDays !== null ? (
+                                            <p className={`font-semibold text-sm ${product.autonomyDays <= 3 ? 'text-red-400' :
+                                                product.autonomyDays <= 7 ? 'text-yellow-400' :
+                                                    'text-green-400'
+                                                }`}>
+                                                {product.autonomyDays} dias
+                                            </p>
+                                        ) : (
+                                            <p className="font-semibold text-sm text-gray-500">--</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {(() => {
+                                    const reorderPt = product.manualReorderPoint ?? product.reorderPoint ?? 0;
+                                    const stockPercent = reorderPt > 0
+                                        ? Math.min((product.currentStock / reorderPt) * 100, 100)
+                                        : 100; // If no reorder point set, show full bar
+                                    const isLowStock = product.currentStock <= reorderPt && reorderPt > 0;
+
+                                    return (
+                                        <div className="mb-2">
+                                            <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                                <span>Estoque: {product.currentStock} / {reorderPt > 0 ? reorderPt : '-'} {product.baseUnit}</span>
+                                                {reorderPt > 0 && <span>{Math.round(stockPercent)}%</span>}
+                                            </div>
+                                            <div className="progress-bar h-2">
+                                                <div
+                                                    className={`progress-bar-fill h-2 ${isLowStock
+                                                        ? 'bg-yellow-500'
+                                                        : 'bg-primary-500'
+                                                        }`}
+                                                    style={{ width: `${stockPercent}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                <div className="pt-3 border-t border-white/10 flex gap-2">
+                                    <Link
+                                        to={`/stock/entry?productId=${product.id}`}
+                                        className="btn-ghost text-xs flex-1 z-10"
+                                    >
+                                        <ShoppingCart className="w-3 h-3" /> Entrada
+                                    </Link>
+                                    <Link
+                                        to={`/products/${product.id}`}
+                                        className="btn-ghost text-xs flex-1 z-10"
+                                    >
+                                        <Edit className="w-3 h-3" /> Editar
+                                    </Link>
                                 </div>
                             </div>
+                        ))}
+                    </div>
 
-                            {(() => {
-                                const reorderPt = product.manualReorderPoint ?? product.reorderPoint ?? 0;
-                                const stockPercent = reorderPt > 0
-                                    ? Math.min((product.currentStock / reorderPt) * 100, 100)
-                                    : 100; // If no reorder point set, show full bar
-                                const isLowStock = product.currentStock <= reorderPt && reorderPt > 0;
-
-                                return (
-                                    <div className="mb-2">
-                                        <div className="flex justify-between text-xs text-gray-500 mb-1">
-                                            <span>Estoque: {product.currentStock} / {reorderPt} {product.baseUnit}</span>
-                                            <span>{Math.round(stockPercent)}%</span>
-                                        </div>
-                                        <div className="progress-bar h-2">
-                                            <div
-                                                className={`progress-bar-fill h-2 ${isLowStock
-                                                    ? 'bg-yellow-500'
-                                                    : 'bg-primary-500'
-                                                    }`}
-                                                style={{ width: `${stockPercent}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            <div className="pt-3 border-t border-white/10 flex gap-2">
-                                <Link
-                                    to={`/stock/entry?productId=${product.id}`}
-                                    className="btn-ghost text-xs flex-1 z-10"
-                                >
-                                    <ShoppingCart className="w-3 h-3" /> Entrada
-                                </Link>
-                                <Link
-                                    to={`/products/${product.id}`}
-                                    className="btn-ghost text-xs flex-1 z-10"
-                                >
-                                    <Edit className="w-3 h-3" /> Editar
-                                </Link>
-                            </div>
+                    {/* Load More Button */}
+                    {pagination?.hasNext && (
+                        <div className="flex justify-center py-4">
+                            <button
+                                onClick={() => setLimit((prev) => prev + 50)}
+                                className="btn-secondary w-full md:w-auto min-w-[200px]"
+                                disabled={isLoadingProducts}
+                            >
+                                {isLoadingProducts ? (
+                                    <span className="loading loading-spinner loading-sm"></span>
+                                ) : (
+                                    <>
+                                        Carregar Mais Produtos
+                                        <span className="ml-2 text-xs opacity-70">
+                                            ({filteredProducts.length} exibidos de {pagination.total})
+                                        </span>
+                                    </>
+                                )}
+                            </button>
                         </div>
-                    ))}
-                </div>
+                    )}
+                </>
             )}
 
             {/* ... Modals (Category, Supplier) ... */}

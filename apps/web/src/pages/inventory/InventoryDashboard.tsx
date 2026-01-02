@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { ArrowLeft, Plus, History, Play, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Plus, History, Play, AlertCircle, CheckCircle, Eye } from 'lucide-react';
 import { formatDate } from '../../lib/utils';
 import toast from 'react-hot-toast';
 
@@ -148,13 +148,17 @@ export default function InventoryDashboard() {
                                 <th>Status</th>
                                 <th>Precisão</th>
                                 <th>Itens</th>
-                                <th>Responsável</th>
+                                <th className="text-right">Ações</th>
                             </tr>
                         </thead>
                         <tbody>
                             {(history || []).map((inv: any) => (
                                 <tr key={inv.id}>
-                                    <td className="text-white">{formatDate(inv.endDate || inv.startDate)}</td>
+                                    <td className="text-white">
+                                        <Link to={`/stock/inventory/${inv.id}`} className="hover:text-primary-400 hover:underline">
+                                            {formatDate(inv.endDate || inv.startDate)}
+                                        </Link>
+                                    </td>
                                     <td>
                                         <span className={`badge ${inv.status === 'COMPLETED' ? 'badge-success' : 'badge-warning'}`}>
                                             {inv.status === 'COMPLETED' ? 'Finalizado' : inv.status}
@@ -171,8 +175,22 @@ export default function InventoryDashboard() {
                                             <span className="text-gray-400 text-sm">{Math.round(inv.precision)}%</span>
                                         </div>
                                     </td>
-                                    <td className="text-gray-400">{inv.itemsCount} itens ({inv.itemsCorrect} corretos)</td>
-                                    <td className="text-gray-400">Lucas Brouck</td> {/* Mock author logic for now locally or get from BE */}
+                                    <td className="text-gray-400">
+                                        {inv.itemsCount} itens
+                                        {inv.status === 'COMPLETED' && (
+                                            <span className="text-xs ml-1">
+                                                ({inv.itemsCorrect} exatos, <span className="text-red-400">{inv.itemsIncorrect} diver.</span>)
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="text-right">
+                                        <Link
+                                            to={`/stock/inventory/${inv.id}`}
+                                            className="btn btn-ghost btn-xs gap-2"
+                                        >
+                                            <Eye className="w-4 h-4" /> Ver detalhes
+                                        </Link>
+                                    </td>
                                 </tr>
                             ))}
                             {(!history || history.length === 0) && (

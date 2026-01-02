@@ -70,7 +70,6 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
         return reply.send({ success: true, data: history });
     });
 
-    // Get Inventory Details (Items)
     fastify.get('/:id', {
         preHandler: [requireCostCenter],
         schema: {
@@ -82,9 +81,11 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
         const { id } = request.params as { id: string };
         const { categoryId } = request.query as { categoryId?: string };
 
+        // Fetch session to get status
+        const session = await InventoryService.getSessionById(id);
         const items = await InventoryService.getInventoryItems(id, categoryId);
 
-        return reply.send({ success: true, data: items });
+        return reply.send({ success: true, data: { session, items } });
     });
 
     // Update Item Count
@@ -135,6 +136,20 @@ export async function inventoryRoutes(fastify: FastifyInstance) {
         const { id } = request.params as { id: string };
         const token = await InventoryService.getShareToken(id);
         return reply.send({ success: true, data: { token } });
+    });
+
+    // Cancel Inventory
+    fastify.post('/:id/cancel', {
+        preHandler: [requireCostCenter],
+        schema: {
+            tags: ['Inventory'],
+            summary: 'Cancel inventory session',
+            security: [{ bearerAuth: [] }]
+        }
+    }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        await InventoryService.cancelInventory(id);
+        return reply.send({ success: true });
     });
 }
 

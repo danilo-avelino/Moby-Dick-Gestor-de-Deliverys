@@ -18,6 +18,7 @@ interface IndicatorModalProps {
 export function IndicatorModal({ isOpen, onClose, indicatorId }: IndicatorModalProps) {
     const [chatMessage, setChatMessage] = useState("");
     const [isConfigOpen, setIsConfigOpen] = useState(false);
+    const [manualValue, setManualValue] = useState("");
 
     const { user } = useAuthStore();
     const queryClient = useQueryClient();
@@ -38,6 +39,33 @@ export function IndicatorModal({ isOpen, onClose, indicatorId }: IndicatorModalP
         },
         onError: () => toast.error("Erro ao enviar mensagem")
     });
+
+    const manualReadingMutation = useMutation({
+        mutationFn: (data: { value: number; month: string }) => api.post('/api/dashboard/manual-readings', {
+            type: indicator.type === 'MANUAL_RATING' ? 'ifoodRating' : indicator.type, // Map type
+            value: data.value,
+            month: data.month
+        }),
+        onSuccess: () => {
+            setManualValue("");
+            queryClient.invalidateQueries({ queryKey: ['indicator', indicatorId] });
+            queryClient.invalidateQueries({ queryKey: ['indicators'] }); // Also update dashboard
+            toast.success("Leitura salva com sucesso");
+        },
+        onError: () => toast.error("Erro ao salvar leitura")
+    });
+
+    const handleSaveManual = () => {
+        if (!manualValue) return;
+        const val = parseFloat(manualValue.replace(',', '.'));
+        if (isNaN(val)) {
+            toast.error("Valor inválido");
+            return;
+        }
+
+        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        manualReadingMutation.mutate({ value: val, month: currentMonth });
+    };
 
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
@@ -130,22 +158,47 @@ export function IndicatorModal({ isOpen, onClose, indicatorId }: IndicatorModalP
                                                     </div>
                                                 </div>
 
-                                                <div className="flex justify-between items-center bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-lg p-4 text-sm">
-                                                    <div className="flex items-start">
-                                                        <Info className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
-                                                        <p>Os dados são coletados automaticamente. Lançamentos manuais proibidos.</p>
+                                                {indicator.type === 'MANUAL_RATING' ? (
+                                                    <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-lg p-4">
+                                                        <div className="flex items-center justify-between mb-2">
+                                                            <p className="text-sm font-medium text-indigo-300">Lançamento Manual ({new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })})</p>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <input
+                                                                type="number"
+                                                                step="0.1"
+                                                                placeholder="Digite o valor..."
+                                                                className="flex-1 bg-gray-900/50 border border-white/10 rounded-lg px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                                                value={manualValue}
+                                                                onChange={(e) => setManualValue(e.target.value)}
+                                                            />
+                                                            <button
+                                                                onClick={handleSaveManual}
+                                                                disabled={manualReadingMutation.isPending || !manualValue}
+                                                                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            >
+                                                                {manualReadingMutation.isPending ? 'Salvando...' : 'Salvar'}
+                                                            </button>
+                                                        </div>
                                                     </div>
+                                                ) : (
+                                                    <div className="flex justify-between items-center bg-blue-500/10 border border-blue-500/20 text-blue-300 rounded-lg p-4 text-sm">
+                                                        <div className="flex items-start">
+                                                            <Info className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
+                                                            <p>Os dados são coletados automaticamente. Lançamentos manuais proibidos.</p>
+                                                        </div>
 
-                                                    <div className="flex -space-x-2 overflow-hidden ml-4">
-                                                        {indicator.access?.map((access: any) => (
-                                                            <div key={access.user.id} className="relative inline-block h-8 w-8 rounded-full ring-2 ring-gray-900 bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-400" title={`${access.user.firstName} ${access.user.lastName}`}>
-                                                                {access.user.avatarUrl ? (
-                                                                    <img className="h-full w-full rounded-full object-cover" src={access.user.avatarUrl} alt="" />
-                                                                ) : getInitials(access.user.firstName, access.user.lastName)}
-                                                            </div>
-                                                        ))}
+                                                        <div className="flex -space-x-2 overflow-hidden ml-4">
+                                                            {indicator.access?.map((access: any) => (
+                                                                <div key={access.user.id} className="relative inline-block h-8 w-8 rounded-full ring-2 ring-gray-900 bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-400" title={`${access.user.firstName} ${access.user.lastName}`}>
+                                                                    {access.user.avatarUrl ? (
+                                                                        <img className="h-full w-full rounded-full object-cover" src={access.user.avatarUrl} alt="" />
+                                                                    ) : getInitials(access.user.firstName, access.user.lastName)}
+                                                                </div>
+                                                            ))}
+                                                        </div>
                                                     </div>
-                                                </div>
+                                                )}
                                             </div>
 
                                             {/* Grid layout for History and Chat */}

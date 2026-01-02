@@ -13,7 +13,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const suggestions = await prisma.purchaseSuggestion.findMany({
             where: {
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
                 OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
                 isAccepted: null,
             },
@@ -38,7 +38,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
         schema: { tags: ['Purchases'], summary: 'Generate AI purchase suggestions', security: [{ bearerAuth: [] }] },
     }, async (request, reply) => {
         const products = await prisma.product.findMany({
-            where: { restaurantId: request.user!.costCenterId, isActive: true, isRawMaterial: true },
+            where: { costCenterId: request.user!.costCenterId, isActive: true, isRawMaterial: true },
             include: {
                 movements: {
                     where: { type: { in: ['OUT', 'PRODUCTION'] }, createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } },
@@ -47,7 +47,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
             },
         });
 
-        await prisma.purchaseSuggestion.deleteMany({ where: { restaurantId: request.user!.costCenterId } });
+        await prisma.purchaseSuggestion.deleteMany({ where: { costCenterId: request.user!.costCenterId } });
         const suggestions: any[] = [];
 
         for (const product of products) {
@@ -68,7 +68,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
             else if (daysLeft <= 5) priority = 'MEDIUM';
 
             suggestions.push({
-                restaurantId: request.user!.costCenterId, productId: product.id, currentStock: product.currentStock,
+                costCenterId: request.user!.costCenterId, productId: product.id, currentStock: product.currentStock,
                 avgDailyConsumption: avgDaily, suggestedQuantity: suggestedQty, suggestedUnit: product.baseUnit,
                 reorderPoint, leadTimeDays: product.leadTimeDays, priority, confidence: 0.8,
                 estimatedRunoutDate: new Date(Date.now() + daysLeft * 24 * 60 * 60 * 1000),
@@ -85,7 +85,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
         preHandler: [requireCostCenter],
     }, async (request, reply) => {
         const suggestion = await prisma.purchaseSuggestion.findFirst({
-            where: { id: request.params.id, restaurantId: request.user!.costCenterId },
+            where: { id: request.params.id, costCenterId: request.user!.costCenterId },
         });
         if (!suggestion) throw errors.notFound('Suggestion not found');
 
@@ -99,7 +99,7 @@ export async function purchaseRoutes(fastify: FastifyInstance) {
     // Get anomalies
     fastify.get('/anomalies', { preHandler: [requireCostCenter] }, async (request, reply) => {
         const anomalies = await prisma.consumptionAnomaly.findMany({
-            where: { restaurantId: request.user!.costCenterId, isResolved: false },
+            where: { costCenterId: request.user!.costCenterId, isResolved: false },
             include: { product: { select: { id: true, name: true, sku: true } } },
             orderBy: [{ severity: 'desc' }, { detectedAt: 'desc' }],
         });

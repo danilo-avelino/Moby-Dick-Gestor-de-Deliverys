@@ -3,16 +3,18 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { useAuthStore } from "../../stores/auth";
 import { UserRole } from "types"; // Adjust import
-import { Target, TrendingUp, AlertCircle, Info, Settings } from "lucide-react";
+import { Target, TrendingUp, AlertCircle, Info, Settings, Flag } from "lucide-react";
 import { IndicatorCard } from "./components/IndicatorCard"; // Will create next
 import { IndicatorModal } from "./components/IndicatorModal"; // Will create next
 import { IndicatorConfigModal } from "./components/IndicatorConfigModal"; // Will create next
 import { IndicatorListConfigModal } from "./components/IndicatorListConfigModal";
+import { GoalsConfigModal } from "./components/GoalsConfigModal";
 
 export default function IndicatorsDashboard() {
     const { user } = useAuthStore();
     const [selectedIndicatorId, setSelectedIndicatorId] = useState<string | null>(null);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
+    const [isGoalsOpen, setIsGoalsOpen] = useState(false);
 
     const { data: indicators, isLoading } = useQuery({
         queryKey: ["indicators"],
@@ -45,13 +47,22 @@ export default function IndicatorsDashboard() {
                 </div>
 
                 {canConfigure && (
-                    <button
-                        onClick={() => setIsConfigOpen(true)}
-                        className="flex items-center space-x-2 bg-white/5 border border-white/10 px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors shadow-sm"
-                    >
-                        <Settings className="w-5 h-5 text-gray-400 group-hover:text-white" />
-                        <span>Configurar Acompanhamento</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setIsGoalsOpen(true)}
+                            className="flex items-center space-x-2 bg-white/5 border border-white/10 px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors shadow-sm"
+                        >
+                            <Flag className="w-5 h-5 text-emerald-400" />
+                            <span>Metas</span>
+                        </button>
+                        <button
+                            onClick={() => setIsConfigOpen(true)}
+                            className="flex items-center space-x-2 bg-white/5 border border-white/10 px-4 py-2 rounded-lg text-white hover:bg-white/10 transition-colors shadow-sm"
+                        >
+                            <Settings className="w-5 h-5 text-gray-400" />
+                            <span>Configurar Acompanhamento</span>
+                        </button>
+                    </div>
                 )}
             </div>
 
@@ -95,6 +106,11 @@ export default function IndicatorsDashboard() {
                     indicators={indicators || []}
                 />
             )}
+
+            <GoalsConfigModal
+                isOpen={isGoalsOpen}
+                onClose={() => setIsGoalsOpen(false)}
+            />
         </div>
     );
 }

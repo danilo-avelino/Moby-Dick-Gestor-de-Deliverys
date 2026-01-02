@@ -10,6 +10,7 @@ import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { cn } from '../../lib/utils'; // Assuming cn exists as seen in Layout
 import { NumericFormat } from 'react-number-format';
+import { ModernKPICard } from '../dashboard/components/ModernKPICard';
 
 interface Revenue {
     id: string;
@@ -30,70 +31,106 @@ const getCostCenterColor = (id: string, index: number) => {
     return colors[index % colors.length] || 'bg-primary-500';
 };
 
-// DASHBOARD COMPONENT
-function InvoicingDashboard({ currentDate }: { currentDate: Date }) {
-    const { data: kpis } = useQuery({
-        queryKey: ['dashboard-kpis', format(currentDate, 'yyyy-MM-dd')],
-        queryFn: () => api.get('/api/dashboard/kpis', {
-            params: { date: currentDate.toISOString() }
-        }).then(r => r.data.data)
+// ROBUST DASHBOARD COMPONENT
+
+function InvoicingDashboard({ revenues, currentDate }: { revenues: any[], currentDate: Date }) {
+    // 1. Filter revenues for contexts
+    // Current Month
+    const currentMonthRevenues = revenues.filter(r => {
+        const d = new Date(r.startDate);
+        // Correct for timezone offset if needed, but usually simple string match is safer for YYYY-MM
+        const rMonth = d.toISOString().slice(0, 7); // YYYY-MM
+        const cMonth = currentDate.toISOString().slice(0, 7);
+        return rMonth === cMonth;
     });
 
-    if (!kpis) return null;
+    const totalCurrentMonth = currentMonthRevenues.reduce((acc, r) => acc + Number(r.totalAmount), 0);
 
-    const { revenue } = kpis;
-    const { thisMonth, lastMonth, lastYearSameMonth, forecast } = revenue;
+    // Last Month
+    const lastMonthDate = subMonths(currentDate, 1);
+    const lastMonthRevenues = revenues.filter(r => {
+        const d = new Date(r.startDate);
+        const rMonth = d.toISOString().slice(0, 7);
+        const lMonth = lastMonthDate.toISOString().slice(0, 7);
+        return rMonth === lMonth;
+    });
+    const totalLastMonth = lastMonthRevenues.reduce((acc, r) => acc + Number(r.totalAmount), 0);
 
-    // Comparisons
-    const vsLastMonth = lastMonth > 0 ? ((thisMonth - lastMonth) / lastMonth) * 100 : 0;
-    const vsLastYear = lastYearSameMonth > 0 ? ((thisMonth - lastYearSameMonth) / lastYearSameMonth) * 100 : 0;
+    // Last Year Same Month
+    const lastYearDate = subMonths(currentDate, 12);
+    const lastYearRevenues = revenues.filter(r => {
+        const d = new Date(r.startDate);
+        const rMonth = d.toISOString().slice(0, 7);
+        const lyMonth = lastYearDate.toISOString().slice(0, 7);
+        return rMonth === lyMonth;
+    });
+    const totalLastYear = lastYearRevenues.reduce((acc, r) => acc + Number(r.totalAmount), 0);
+
+    // Forecast (Simple Projection)
+    const today = new Date();
+    const isCurrentMonth = isSameMonth(currentDate, today);
+    let forecast = totalCurrentMonth;
+
+    if (isCurrentMonth) {
+        const dayOfMonth = today.getDate();
+        const daysInMonth = endOfMonth(today).getDate();
+        if (dayOfMonth > 0) {
+            forecast = (totalCurrentMonth / dayOfMonth) * daysInMonth;
+        }
+    }
+
+    // Trends
+    const vsLastMonth = totalLastMonth > 0 ? ((totalCurrentMonth - totalLastMonth) / totalLastMonth) * 100 : 0;
+    const vsLastYear = totalLastYear > 0 ? ((totalCurrentMonth - totalLastYear) / totalLastYear) * 100 : 0;
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <DashboardCard
-                title="Faturamento Mês Atual"
-                value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(thisMonth)}
-                icon={DollarSign}
-                color="bg-primary-500"
-            />
-            <DashboardCard
-                title="Previsão (Fechamento)"
-                value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(forecast)}
-                icon={TrendingUp}
-                color="bg-purple-500"
-                subtitle="Calculado pelo algoritmo"
-            />
-            <DashboardCard
-                title="Vs Mês Anterior"
-                value={`${vsLastMonth >= 0 ? '+' : ''}${vsLastMonth.toFixed(1)}%`}
-                icon={Calendar}
-                color={vsLastMonth >= 0 ? "bg-green-500" : "bg-red-500"}
-                isPercent
-            />
-            <DashboardCard
-                title="Vs Ano Anterior"
-                value={lastYearSameMonth > 0 ? `${vsLastYear >= 0 ? '+' : ''}${vsLastYear.toFixed(1)}%` : 'N/A'}
-                icon={Calendar}
-                color={vsLastYear >= 0 ? "bg-green-500" : "bg-red-500"}
-                isPercent
-                subtitle={lastYearSameMonth > 0 ? `Ano passado: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(lastYearSameMonth)}` : 'Sem dados'}
-            />
-        </div>
-    );
-}
-
-function DashboardCard({ title, value, icon: Icon, color, subtitle, isPercent }: any) {
-    return (
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center gap-4">
-            <div className={`p-3 rounded-lg ${color} bg-opacity-20 text-white`}>
-                <Icon size={24} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="glass-card p-0 overflow-hidden">
+                <ModernKPICard
+                    title="Faturamento (Mês Atual)"
+                    value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(totalCurrentMonth)}
+                    subtitle="Total Consolidado"
+                    icon={DollarSign}
+                    variant="revenue" // Blue/Primary
+                    trend="Consolidado"
+                    trendType="neutral"
+                />
             </div>
-            <div>
-                <p className="text-gray-400 text-sm">{title}</p>
-                <p className={`text-xl font-bold ${isPercent ? (parseFloat(value) >= 0 ? 'text-green-400' : 'text-red-400') : 'text-white'}`}>
-                    {value}
-                </p>
-                {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+
+            <div className="glass-card p-0 overflow-hidden">
+                <ModernKPICard
+                    title="Previsão (Fechamento)"
+                    value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(forecast)}
+                    subtitle="Calculado pelo algoritmo"
+                    icon={TrendingUp}
+                    variant="neutral" // Purple-ish if neutral, or use custom if needed
+                    trend={isCurrentMonth ? "Projeção Linear" : "Fechado"}
+                    trendType="neutral"
+                />
+            </div>
+
+            <div className="glass-card p-0 overflow-hidden">
+                <ModernKPICard
+                    title="Vs Mês Anterior"
+                    value={`${vsLastMonth >= 0 ? '+' : ''}${vsLastMonth.toFixed(1)}%`}
+                    subtitle={`Anterior: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(totalLastMonth)}`}
+                    icon={Calendar}
+                    variant={vsLastMonth >= 0 ? "profit" : "waste"}
+                    trend="Mês passado"
+                    trendType={vsLastMonth >= 0 ? "up" : "down"}
+                />
+            </div>
+
+            <div className="glass-card p-0 overflow-hidden">
+                <ModernKPICard
+                    title="Vs Ano Anterior"
+                    value={totalLastYear > 0 ? `${vsLastYear >= 0 ? '+' : ''}${vsLastYear.toFixed(1)}%` : 'N/A'}
+                    subtitle={totalLastYear > 0 ? `Ano passado: ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(totalLastYear)}` : 'Sem dados'}
+                    icon={Calendar}
+                    variant={vsLastYear >= 0 ? "profit" : "waste"}
+                    trend="Mesmo período ano ant."
+                    trendType={vsLastYear >= 0 ? "up" : "down"}
+                />
             </div>
         </div>
     );
@@ -221,7 +258,7 @@ export default function Invoicing() {
                 </div>
             </div>
 
-            <InvoicingDashboard currentDate={currentDate} />
+            <InvoicingDashboard revenues={revenues} currentDate={currentDate} />
 
             {/* Calendar Controls */}
             <div className="flex items-center justify-between bg-gray-900/50 p-4 rounded-xl border border-white/5 mb-4">
@@ -581,7 +618,11 @@ function RevenueModal({ isOpen, onClose, data, onSuccess }: {
                                                 <button
                                                     type="button"
                                                     onClick={() => {
-                                                        if (confirm('Tem certeza?')) deleteMutation.mutate();
+                                                        console.log('Delete button clicked for id:', editingRevenue.id);
+                                                        if (confirm('Tem certeza que deseja excluir este faturamento?')) {
+                                                            console.log('User confirmed deletion');
+                                                            deleteMutation.mutate();
+                                                        }
                                                     }}
                                                     className="text-red-400 hover:text-red-300 px-4 py-2 text-sm font-medium mr-auto"
                                                 >

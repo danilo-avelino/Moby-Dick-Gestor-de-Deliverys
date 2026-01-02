@@ -166,137 +166,38 @@ export default function Stock() {
                 <>
                     {/* Main KPIs */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="stat-card">
-                            <div className="flex items-center gap-3">
-                                <div className="p-3 rounded-xl bg-primary-500/20">
-                                    <Package className="w-5 h-5 text-primary-400" />
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-400">Valor Total</p>
-                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.totalValue ?? 0)}</p>
-                                </div>
-                            </div>
+                        <div className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <Package className="w-8 h-8 text-primary-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-400">Valor Total</p>
+                            <p className="text-xl font-bold text-white">{formatCurrency(summary?.totalValue ?? 0)}</p>
                         </div>
 
                         {/* Low Stock Card */}
                         <div
-                            className="stat-card cursor-pointer hover:bg-white/10 transition-all group"
+                            className="glass-card hover:bg-white/10 transition-all text-center py-6 cursor-pointer"
                             onClick={() => navigate('/products?filter=lowStock')}
                             title="Produtos com estoque atual ≤ ponto de reposição"
                         >
-                            <div className="flex items-center gap-3">
-                                <div className="p-3 rounded-xl bg-yellow-500/20">
-                                    <AlertTriangle className="w-5 h-5 text-yellow-400" />
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-400">Estoque Baixo</p>
-                                    <p className="text-xl font-bold text-yellow-400">{formatNumber(summary?.lowStockCount || 0)}</p>
-                                    <p className="text-xs text-gray-500 group-hover:text-gray-400 transition-colors">
-                                        Estoque abaixo de 20% do Ponto de Reposição
-                                    </p>
-                                </div>
-                            </div>
+                            <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-400">Estoque Baixo</p>
+                            <p className="text-xl font-bold text-yellow-400">{formatNumber(summary?.lowStockCount || 0)}</p>
                         </div>
 
                         {/* Expiring Card */}
                         <div
-                            className="stat-card cursor-pointer hover:bg-white/10 transition-all"
+                            className="glass-card hover:bg-white/10 transition-all text-center py-6 cursor-pointer"
                             onClick={() => navigate('/products?filter=expiring')}
                         >
-                            <div className="flex items-center gap-3">
-                                <div className="p-3 rounded-xl bg-red-500/20">
-                                    <Calendar className="w-5 h-5 text-red-400" />
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-400">Vencendo em 7 dias</p>
-                                    <p className="text-xl font-bold text-red-400">0</p>
-                                </div>
-                            </div>
+                            <Calendar className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-400">Vencendo em 7 dias</p>
+                            <p className="text-xl font-bold text-red-400">0</p>
                         </div>
 
                         {/* Waste Card */}
-                        <div className="stat-card">
-                            <div className="flex items-center gap-3">
-                                <div className="p-3 rounded-xl bg-red-500/20">
-                                    <Trash2 className="w-5 h-5 text-red-400" />
-                                </div>
-                                <div>
-                                    <p className="text-sm text-gray-400">Perdas (mês)</p>
-                                    <p className="text-xl font-bold text-red-400">{formatCurrency(summary?.monthWaste || 0)}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Today Summary + Categories */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {/* Today's Flow */}
-                        <div className="glass-card">
-                            <h3 className="text-lg font-semibold text-white mb-4">Movimentação Hoje</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <ArrowUpRight className="w-5 h-5 text-green-400" />
-                                        <span className="text-green-400 font-medium">Entradas</span>
-                                    </div>
-                                    <p className="text-2xl font-bold text-white">{formatCurrency(summary?.todayEntries || 0)}</p>
-                                </div>
-                                <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <ArrowDownRight className="w-5 h-5 text-red-400" />
-                                        <span className="text-red-400 font-medium">Saídas</span>
-                                    </div>
-                                    <p className="text-2xl font-bold text-white">{formatCurrency(summary?.todayExits || 0)}</p>
-                                </div>
-                            </div>
-
-                            {/* Monthly Totals */}
-                            <h3 className="text-lg font-semibold text-white mt-6 mb-4">Movimentação do Mês</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="p-4 rounded-xl bg-green-500/5 border border-green-500/10">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <ArrowUpRight className="w-4 h-4 text-green-400" />
-                                        <span className="text-green-400/80 text-sm font-medium">Entradas (mês)</span>
-                                    </div>
-                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.monthEntries || 0)}</p>
-                                </div>
-                                <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <ArrowDownRight className="w-4 h-4 text-red-400" />
-                                        <span className="text-red-400/80 text-sm font-medium">Saídas (mês)</span>
-                                    </div>
-                                    <p className="text-xl font-bold text-white">{formatCurrency(summary?.monthExits || 0)}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Categories Breakdown */}
-                        <div className="glass-card">
-                            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                                <Tag className="w-5 h-5 text-primary-400" /> Por Categoria
-                            </h3>
-                            <div className="space-y-3">
-                                {categorySummary.length > 0 ? (
-                                    categorySummary.map((cat) => (
-                                        <div key={cat.name} className="flex items-center gap-3">
-                                            <div className="flex-1">
-                                                <div className="flex justify-between text-sm mb-1">
-                                                    <span className="text-white">{cat.name}</span>
-                                                    <span className="text-gray-400">{formatCurrency(cat.value)}</span>
-                                                </div>
-                                                <div className="h-2 rounded-full bg-gray-700 overflow-hidden">
-                                                    <div
-                                                        className="h-full rounded-full bg-gradient-to-r from-primary-500 to-secondary-500"
-                                                        style={{ width: `${cat.percentage}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <p className="text-gray-500 text-sm text-center py-4">Nenhum produto cadastrado</p>
-                                )}
-                            </div>
+                        <div className="glass-card hover:bg-white/10 transition-all text-center py-6">
+                            <Trash2 className="w-8 h-8 text-red-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-400">Perdas (mês)</p>
+                            <p className="text-xl font-bold text-red-400">{formatCurrency(summary?.monthWaste || 0)}</p>
                         </div>
                     </div>
 
@@ -335,6 +236,175 @@ export default function Stock() {
                             <History className="w-8 h-8 text-purple-400 mx-auto mb-2" />
                             <p className="font-medium text-white">Movimentações</p>
                         </button>
+                    </div>
+
+                    {/* Today Summary + Categories */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Today's Flow */}
+                        {/* Today's Flow - Premium Glassmorphism Design */}
+                        <div className="space-y-6">
+                            <div>
+                                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+                                    Movimentação Hoje
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* Entries Premium Card */}
+                                    <div className="relative overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-transparent border border-emerald-500/30 backdrop-blur-md shadow-[0_0_30px_rgba(16,185,129,0.15)] group hover:scale-[1.02] transition-transform duration-300">
+                                        <div className="absolute -right-6 -bottom-6 opacity-10 rotate-12 group-hover:opacity-20 transition-opacity">
+                                            <TrendingUp className="w-32 h-32 text-emerald-400" />
+                                        </div>
+                                        <div className="relative z-10 space-y-4">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-emerald-500/20 rounded-lg backdrop-blur-sm">
+                                                        <ArrowUpRight className="w-5 h-5 text-emerald-300" />
+                                                    </div>
+                                                    <span className="text-emerald-200 font-medium">Entradas</span>
+                                                </div>
+                                                <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-1">
+                                                    <TrendingUp className="w-3 h-3" />
+                                                    +12%
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <p className="text-3xl font-bold text-white drop-shadow-lg tracking-tight">
+                                                    {formatCurrency(summary?.todayEntries || 0)}
+                                                </p>
+                                                <p className="text-sm text-emerald-200/50 mt-1">vs ontem</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Exits Premium Card */}
+                                    <div className="relative overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-rose-500/20 to-transparent border border-rose-500/30 backdrop-blur-md shadow-[0_0_30px_rgba(244,63,94,0.15)] group hover:scale-[1.02] transition-transform duration-300">
+                                        <div className="absolute -right-6 -bottom-6 opacity-10 rotate-12 group-hover:opacity-20 transition-opacity">
+                                            <TrendingDown className="w-32 h-32 text-rose-400" />
+                                        </div>
+                                        <div className="relative z-10 space-y-4">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-rose-500/20 rounded-lg backdrop-blur-sm">
+                                                        <ArrowDownRight className="w-5 h-5 text-rose-300" />
+                                                    </div>
+                                                    <span className="text-rose-200 font-medium">Saídas</span>
+                                                </div>
+                                                <span className="px-2.5 py-1 rounded-full bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-1">
+                                                    <TrendingDown className="w-3 h-3" />
+                                                    -5%
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <p className="text-3xl font-bold text-white drop-shadow-lg tracking-tight">
+                                                    {formatCurrency(summary?.todayExits || 0)}
+                                                </p>
+                                                <p className="text-sm text-rose-200/50 mt-1">vs ontem</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Monthly Totals - Premium Design */}
+                            <div>
+                                <h3 className="text-lg font-semibold text-white mb-4">Movimentação do Mês</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    {/* Monthly Entries */}
+                                    <div className="relative overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-transparent border border-emerald-500/20 backdrop-blur-md shadow-[0_0_20px_rgba(16,185,129,0.1)] group hover:scale-[1.02] transition-transform duration-300">
+                                        <div className="absolute -right-6 -bottom-6 opacity-[0.05] rotate-12 group-hover:opacity-10 transition-opacity">
+                                            <TrendingUp className="w-32 h-32 text-emerald-400" />
+                                        </div>
+                                        <div className="relative z-10 space-y-4">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-emerald-500/20 rounded-lg backdrop-blur-sm">
+                                                        <ArrowUpRight className="w-5 h-5 text-emerald-300" />
+                                                    </div>
+                                                    <span className="text-emerald-200 font-medium">Entradas</span>
+                                                </div>
+                                                <span className="text-xs text-emerald-400/70 font-medium px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                                                    Mês Atual
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <p className="text-2xl font-bold text-white drop-shadow-lg tracking-tight">
+                                                    {formatCurrency(summary?.monthEntries || 0)}
+                                                </p>
+                                                <p className="text-sm text-emerald-200/50 mt-1">acumulado</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Monthly Exits */}
+                                    <div className="relative overflow-hidden p-6 rounded-2xl bg-gradient-to-br from-rose-500/10 to-transparent border border-rose-500/20 backdrop-blur-md shadow-[0_0_20px_rgba(244,63,94,0.1)] group hover:scale-[1.02] transition-transform duration-300">
+                                        <div className="absolute -right-6 -bottom-6 opacity-[0.05] rotate-12 group-hover:opacity-10 transition-opacity">
+                                            <TrendingDown className="w-32 h-32 text-rose-400" />
+                                        </div>
+                                        <div className="relative z-10 space-y-4">
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="p-2 bg-rose-500/20 rounded-lg backdrop-blur-sm">
+                                                        <ArrowDownRight className="w-5 h-5 text-rose-300" />
+                                                    </div>
+                                                    <span className="text-rose-200 font-medium">Saídas</span>
+                                                </div>
+                                                <span className="text-xs text-rose-400/70 font-medium px-2 py-1 rounded-full bg-rose-500/10 border border-rose-500/20">
+                                                    Mês Atual
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <p className="text-2xl font-bold text-white drop-shadow-lg tracking-tight">
+                                                    {formatCurrency(summary?.monthExits || 0)}
+                                                </p>
+                                                <p className="text-sm text-rose-200/50 mt-1">acumulado</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Categories Breakdown */}
+                        <div className="glass-card flex flex-col h-full max-h-[470px]">
+                            <h3 className="text-lg font-semibold text-white mb-5 flex items-center gap-2 flex-shrink-0">
+                                <Tag className="w-5 h-5 text-primary-400" /> Por Categoria
+                            </h3>
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                                {categorySummary.length > 0 ? (
+                                    categorySummary.map((cat) => (
+                                        <div key={cat.name} className="group relative">
+                                            <div className="flex justify-between items-center mb-1.5">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-1 h-1 rounded-full bg-primary-500" />
+                                                    <span className="text-sm text-gray-300 font-medium group-hover:text-white transition-colors">
+                                                        {cat.name}
+                                                    </span>
+                                                    <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest ml-1 bg-white/5 px-1.5 py-0.5 rounded text-nowrap">
+                                                        {cat.count} ITENS
+                                                    </span>
+                                                </div>
+                                                <span className="text-sm text-white font-bold">{formatCurrency(cat.value)}</span>
+                                            </div>
+                                            <div className="relative h-1.5 rounded-full bg-white/5 overflow-hidden">
+                                                <div
+                                                    className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary-600 to-primary-400 transition-all duration-1000 ease-out"
+                                                    style={{ width: `${cat.percentage}%` }}
+                                                />
+                                            </div>
+                                            <div className="flex justify-end mt-0.5">
+                                                <span className="text-[9px] text-gray-600 font-medium tracking-tight">
+                                                    Representa {cat.percentage.toFixed(1)}% do estoque
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full opacity-20">
+                                        <Tag className="w-10 h-10 mb-2" />
+                                        <p className="text-xs">Sem dados</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </>
             )}

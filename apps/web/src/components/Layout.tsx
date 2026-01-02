@@ -72,7 +72,15 @@ export default function Layout() {
         onError: () => toast.error('Erro ao trocar restaurante')
     });
 
-    const alertCount = 3; // Mock
+    // Fetch alerts count
+    const { data: alertsData } = useQuery({
+        queryKey: ['alerts'],
+        queryFn: () => api.get('/api/alerts').then(r => r.data.data),
+        enabled: !!user,
+        staleTime: 1000 * 60, // 1 minute
+    });
+
+    const alertCount = alertsData?.unreadCount || 0;
     const requestCount = requestStats?.pending || 0;
 
     const filteredNavigation = navigation.filter(item => {

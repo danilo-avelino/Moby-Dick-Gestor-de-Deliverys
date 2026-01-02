@@ -186,7 +186,6 @@ export async function stockRequestRoutes(fastify: FastifyInstance) {
         const stockRequest = await prisma.stockRequest.create({
             data: {
                 code,
-                restaurantId: undefined, // removed
                 costCenterId: costCenterId!,
                 organizationId: organizationId!,
                 createdByUserId: userId,

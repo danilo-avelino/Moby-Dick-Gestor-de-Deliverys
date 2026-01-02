@@ -62,7 +62,7 @@ export function ModernKPICard({
         }
     };
 
-    const style = variants[variant];
+    const style = variants[variant] || variants.neutral;
 
     const trendColor = {
         up: "text-emerald-400",

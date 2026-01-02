@@ -119,7 +119,6 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const supplier = await prisma.supplier.create({
             data: {
                 ...body,
-                restaurantId: request.user!.restaurantId!, // TODO: Migrate to Organization? Suppliers are usually Org level.
                 organizationId: request.user!.organizationId!,
             },
         });
@@ -149,7 +148,6 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const existing = await prisma.supplier.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId, // Pending cleanup of restaurantId column if removed
                 organizationId: request.user.organizationId || undefined,
             },
         });
@@ -183,7 +181,6 @@ export async function supplierRoutes(fastify: FastifyInstance) {
         const existing = await prisma.supplier.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.restaurantId, // Pending cleanup
                 organizationId: request.user.organizationId || undefined,
             },
             include: {

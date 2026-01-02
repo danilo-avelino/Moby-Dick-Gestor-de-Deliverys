@@ -34,7 +34,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = {};
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         if (request.query.status) {
@@ -89,7 +89,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const table = await prisma.restaurantTable.findFirst({
@@ -137,7 +137,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         // Check if identifier already exists
         const existing = await prisma.restaurantTable.findFirst({
             where: {
-                restaurantId,
+                costCenterId: restaurantId,
                 identifier: body.identifier,
             },
         });
@@ -148,7 +148,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
         const table = await prisma.restaurantTable.create({
             data: {
-                restaurantId,
+                costCenterId: restaurantId,
                 identifier: body.identifier,
                 capacity: body.capacity,
             },
@@ -179,7 +179,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
 
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const existing = await prisma.restaurantTable.findFirst({ where });
@@ -191,7 +191,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         if (body.identifier && body.identifier !== existing.identifier) {
             const duplicate = await prisma.restaurantTable.findFirst({
                 where: {
-                    restaurantId: existing.restaurantId,
+                    costCenterId: existing.costCenterId,
                     identifier: body.identifier,
                     id: { not: existing.id },
                 },
@@ -230,7 +230,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const existing = await prisma.restaurantTable.findFirst({ where });
@@ -279,7 +279,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         for (let i = 0; i < body.count; i++) {
             const identifier = `${body.prefix} ${body.startNumber + i}`;
             tables.push({
-                restaurantId,
+                costCenterId: restaurantId,
                 identifier,
                 capacity: body.capacity,
             });
@@ -288,7 +288,7 @@ export async function tablesRoutes(fastify: FastifyInstance) {
         // Filter out existing tables
         const existing = await prisma.restaurantTable.findMany({
             where: {
-                restaurantId,
+                costCenterId: restaurantId,
                 identifier: { in: tables.map(t => t.identifier) },
             },
             select: { identifier: true },

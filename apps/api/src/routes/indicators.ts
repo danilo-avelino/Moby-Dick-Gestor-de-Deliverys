@@ -14,7 +14,8 @@ const STANDARD_INDICATORS: Partial<Indicator>[] = [
     { type: 'WASTE_PERCENT', name: 'Desperdício (%)', description: 'Perdas e quebras em relação ao faturamento.', targetValue: 2, cycle: 'MONTHLY' },
     { type: 'WASTE_PERCENT', name: 'Desperdício (%)', description: 'Perdas e quebras em relação ao faturamento.', targetValue: 2, cycle: 'MONTHLY' },
     { type: 'REVENUE', name: 'Faturamento', description: 'Receita total de vendas no período.', targetValue: 100000, cycle: 'MONTHLY' },
-    { type: 'STOCK_ACCURACY', name: 'Precisão de Estoque', description: 'Porcentagem de itens com contagem correta no inventário.', targetValue: 98, cycle: 'MONTHLY' },
+    { type: 'STOCK_ACCURACY' as any, name: 'Precisão de Estoque', description: 'Porcentagem de itens com contagem correta no inventário.', targetValue: 98, cycle: 'MONTHLY' },
+    { type: 'MANUAL_RATING' as any, name: 'Nota iFood', description: 'Nota média de avaliação (iFood/Google).', targetValue: 5, cycle: 'MONTHLY' },
 ];
 
 const updateIndicatorSchema = z.object({

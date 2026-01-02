@@ -40,7 +40,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
         const session = await prisma.cashSession.findFirst({
             where: {
-                restaurantId: restaurantId,
+                costCenterId: restaurantId,
                 status: 'ABERTO',
             },
             include: {
@@ -87,7 +87,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
         // Check if there's already an open session
         const existingSession = await prisma.cashSession.findFirst({
             where: {
-                restaurantId,
+                costCenterId: restaurantId,
                 status: 'ABERTO',
             },
         });
@@ -98,7 +98,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
         const session = await prisma.cashSession.create({
             data: {
-                restaurantId,
+                costCenterId: restaurantId,
                 status: 'ABERTO',
                 openedByUserId: request.user!.id,
                 openingBalance: body.openingBalance,
@@ -137,7 +137,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
         const session = await prisma.cashSession.findFirst({
             where: {
-                restaurantId,
+                costCenterId: restaurantId,
                 status: 'ABERTO',
             },
         });
@@ -193,7 +193,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
         const session = await prisma.cashSession.findFirst({
             where: {
-                restaurantId,
+                costCenterId: restaurantId,
                 status: 'ABERTO',
             },
         });
@@ -255,7 +255,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
         const session = await prisma.cashSession.findFirst({
             where: {
-                restaurantId: restaurantId!,
+                costCenterId: restaurantId!,
                 status: 'ABERTO',
             },
         });
@@ -313,13 +313,13 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
 
         // STRICT FILTER
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         } else if (request.user?.organizationId) {
             // Assuming sessions link to restaurants which link to orgs. 
             // CashSession model usually has restaurantId.
             // We can filter by `restaurant: { organizationId: ... }` if relation exists?
             // Schema check: CashSession -> Restaurant exists.
-            where.restaurant = { organizationId: request.user.organizationId };
+            where.costCenter = { organizationId: request.user.organizationId };
         } else {
             return reply.send({
                 success: true,
@@ -388,7 +388,7 @@ export async function cashSessionRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const where: any = { id: request.params.id };
         if (request.user?.costCenterId) {
-            where.restaurantId = request.user.costCenterId;
+            where.costCenterId = request.user.costCenterId;
         }
 
         const session = await prisma.cashSession.findFirst({

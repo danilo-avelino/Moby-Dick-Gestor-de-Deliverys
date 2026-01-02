@@ -177,12 +177,12 @@ export default function Dashboard() {
                     <BentoCard colSpan={1} className="min-h-[160px]" noPadding>
                         <ModernKPICard
                             title="Precisao de Estoque"
-                            value={`${(kpis?.stockAccuracy || 98).toFixed(1)}%`}
+                            value={`${(kpis?.stockAccuracy !== undefined ? kpis.stockAccuracy : 0).toFixed(1)}%`}
                             subtitle={kpis?.lastInventoryDate ? `Ultimo: ${format(new Date(kpis.lastInventoryDate), 'dd/MM/yyyy')}` : 'Sem registros'}
                             icon={Package}
-                            variant="profit" // Green
-                            trend="Meta: 98%"
-                            trendType="neutral"
+                            variant="profit"
+                            trend={`Meta: ${kpis?.targets?.stockAccuracy || 95}%`}
+                            trendType={(kpis?.stockAccuracy || 0) >= (kpis?.targets?.stockAccuracy || 95) ? "up" : "down"}
                         />
                     </BentoCard>
 

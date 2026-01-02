@@ -28,7 +28,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Find existing analysis
         let analysis = await prisma.menuAnalysis.findFirst({
             where: {
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
                 periodStart: { gte: startDate },
                 periodEnd: { lte: endDate },
             },
@@ -121,7 +121,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Get all active recipes
         const recipes = await prisma.recipe.findMany({
             where: {
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
                 isActive: true,
             },
             select: {
@@ -216,7 +216,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Delete old analysis for same period
         await prisma.menuAnalysis.deleteMany({
             where: {
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
                 periodStart: { gte: new Date(startDate) },
                 periodEnd: { lte: new Date(endDate) },
             },
@@ -225,7 +225,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         // Create new analysis
         const analysis = await prisma.menuAnalysis.create({
             data: {
-                restaurantId: request.user!.costCenterId!,
+                costCenterId: request.user!.costCenterId!,
                 periodStart: new Date(startDate),
                 periodEnd: new Date(endDate),
                 totalRevenue,
@@ -276,7 +276,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const analysis = await prisma.menuAnalysis.findFirst({
-            where: { restaurantId: request.user!.costCenterId },
+            where: { costCenterId: request.user!.costCenterId },
             orderBy: { periodEnd: 'desc' },
             include: {
                 items: {
@@ -341,7 +341,7 @@ export async function menuAnalysisRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const analysis = await prisma.menuAnalysis.findFirst({
-            where: { restaurantId: request.user!.costCenterId },
+            where: { costCenterId: request.user!.costCenterId },
             orderBy: { periodEnd: 'desc' },
             include: {
                 items: {

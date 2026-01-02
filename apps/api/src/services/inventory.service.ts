@@ -36,6 +36,15 @@ export class InventoryService {
         return session;
     }
 
+    // Get session by ID
+    static async getSessionById(id: string) {
+        const session = await prisma.inventorySession.findUnique({
+            where: { id }
+        });
+        if (!session) throw new Error('Inventário não encontrado');
+        return session;
+    }
+
     // Start a new inventory session
     static async startInventory(costCenterId: string, organizationId: string, userId: string, notes?: string) {
         // Check if there is already an open session
@@ -140,13 +149,28 @@ export class InventoryService {
     // Submit user count
     static async updateItemCount(itemId: string, countedQuantity: number) {
         const item = await prisma.inventoryItem.findUnique({
-            where: { id: itemId }
+            where: { id: itemId },
+            include: { product: true }
         });
 
         if (!item) throw new Error('Item não encontrado');
 
         const difference = countedQuantity - item.expectedQuantity;
-        const isCorrect = Math.abs(difference) < 0.001; // Tolerance
+
+        let isCorrect = false;
+
+        // Tolerance Logic
+        const diffPercent = item.expectedQuantity > 0
+            ? (Math.abs(difference) / item.expectedQuantity) * 100
+            : (difference === 0 ? 0 : 100);
+
+        if (item.product.baseUnit?.toLowerCase() === 'kg') {
+            // 5% Tolerance for KG
+            isCorrect = diffPercent <= 5;
+        } else {
+            // Exact match for others (with small float tolerance)
+            isCorrect = Math.abs(difference) < 0.001;
+        }
 
         return prisma.inventoryItem.update({
             where: { id: itemId },
@@ -163,7 +187,7 @@ export class InventoryService {
     static async finishInventory(sessionId: string, userId: string) {
         const session = await prisma.inventorySession.findUnique({
             where: { id: sessionId },
-            include: { items: true }
+            include: { items: { include: { product: true } } }
         });
 
         if (!session) throw new Error('Inventário não encontrado');
@@ -171,16 +195,48 @@ export class InventoryService {
 
         // Calculate stats
         const countedItems = session.items.filter(i => i.countedQuantity !== null);
-        const correctItems = session.items.filter(i => i.isCorrect);
 
-        const validCount = countedItems.length;
+        // Re-verify correctness for all items (just to be safe and consistent)
+        // Although updateItemCount handles it, doing it here ensures consistency if logic changed
+        const processedItems = countedItems.map(item => {
+            const difference = item.countedQuantity! - item.expectedQuantity;
+            let isCorrect = false;
+
+            const diffPercent = item.expectedQuantity > 0
+                ? (Math.abs(difference) / item.expectedQuantity) * 100
+                : (difference === 0 ? 0 : 100);
+
+            if (item.product.baseUnit?.toLowerCase() === 'kg') {
+                isCorrect = diffPercent <= 5;
+            } else {
+                isCorrect = Math.abs(difference) < 0.001;
+            }
+
+            return { ...item, isCorrect, difference };
+        });
+
+        const validCount = processedItems.length;
+        const correctItems = processedItems.filter(i => i.isCorrect);
         const correctCount = correctItems.length;
+        const incorrectCount = validCount - correctCount;
         const precision = validCount > 0 ? (correctCount / validCount) * 100 : 0;
 
         // Update Stock and create Movements
         await prisma.$transaction(async (tx) => {
-            for (const item of countedItems) {
-                // Only update if there is a difference
+            for (const item of processedItems) {
+                // Update item correctness in DB if it changed (optimization)
+                if (item.isCorrect !== item.isCorrect) { // Compare with original
+                    await tx.inventoryItem.update({
+                        where: { id: item.id },
+                        data: { isCorrect: item.isCorrect }
+                    });
+                }
+
+                // Only update if there is a difference (Real Stock Update)
+                // Note: Even if "Accurate" within tolerance, we update the stock to match reality?
+                // Request says: "Não alterar valores reais do estoque, apenas a classificação de precisão"
+                // This implies "Don't mess with stock update logic based on accuracy". 
+                // So we update stock if diff > 0.
                 if (Math.abs(item.difference || 0) > 0.001) {
                     // Update Product Stock
                     await tx.product.update({
@@ -203,7 +259,7 @@ export class InventoryService {
                             referenceType: MovementReferenceType.INVENTORY,
                             referenceId: session.id,
                             userId,
-                            notes: `Ajuste de Inventário (Diferença: ${item.difference})`
+                            notes: `Ajuste de Inventário (Diferença: ${item.difference.toFixed(3)})`
                         }
                     });
                 }
@@ -217,7 +273,8 @@ export class InventoryService {
                     endDate: new Date(),
                     precision,
                     itemsCount: validCount,
-                    itemsCorrect: correctCount
+                    itemsCorrect: correctCount,
+                    itemsIncorrect: incorrectCount
                 }
             });
 
@@ -293,5 +350,25 @@ export class InventoryService {
             },
             take: 20
         });
+    }
+
+    // Cancel inventory
+    static async cancelInventory(sessionId: string) {
+        const session = await prisma.inventorySession.findUnique({
+            where: { id: sessionId }
+        });
+
+        if (!session) throw new Error('Inventário não encontrado');
+        if (session.status !== 'OPEN') throw new Error('Inventário já finalizado ou cancelado');
+
+        await prisma.inventorySession.update({
+            where: { id: sessionId },
+            data: {
+                status: 'CANCELLED',
+                endDate: new Date()
+            }
+        });
+
+        return { success: true };
     }
 }

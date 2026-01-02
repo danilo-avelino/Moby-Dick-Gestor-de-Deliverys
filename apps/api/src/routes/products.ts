@@ -96,7 +96,11 @@ export async function productRoutes(fastify: FastifyInstance) {
         }
 
         if (request.query.categoryId) {
-            where.categoryId = request.query.categoryId;
+            if (request.query.categoryId === 'uncategorized') {
+                where.categoryId = null;
+            } else {
+                where.categoryId = request.query.categoryId;
+            }
         }
 
         if (request.query.isActive !== undefined) {

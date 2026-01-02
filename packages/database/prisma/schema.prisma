@@ -155,6 +155,8 @@ model CostCenter {
   locale                String                 @default("pt-BR")
   targetCmvPercent      Float                  @default(30.0)
   alertCmvThreshold     Float                  @default(35.0)
+  goalsConfig           Json?                  // Stores flexible goal configurations (monthly targets, etc)
+  manualReadings        Json?                  // Stores manual indicator readings (e.g. { "ifoodRating": { "2024-01": 4.5 } })
   plan                  String                 @default("free")
   planExpiresAt         DateTime?
   primaryColor          String                 @default("#6366f1")
@@ -917,6 +919,7 @@ model InventorySession {
   precision    Float?
   itemsCount   Int             @default(0)
   itemsCorrect Int             @default(0)
+  itemsIncorrect Int           @default(0)
   notes        String?
   createdBy    String?
   shareToken   String?         @unique
@@ -1166,6 +1169,7 @@ model PdvOrder {
   changeAmount        Float                   @default(0)
   notes               String?
   kitchenNotes        String?
+  metadata            Json?
   estimatedReadyAt    DateTime?
   readyAt             DateTime?
   deliveredAt         DateTime?
@@ -1784,6 +1788,7 @@ enum GoalType {
   RECIPE_COVERAGE
   WASTE_PERCENT
   STOCK_ACCURACY
+  MANUAL_RATING
 }
 
 enum IndicatorCycle {

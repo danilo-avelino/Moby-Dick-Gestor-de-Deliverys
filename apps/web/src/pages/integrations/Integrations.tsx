@@ -94,7 +94,62 @@ export default function Integrations() {
         },
     });
 
+    // Disconnect integration mutation
+    const disconnectMutation = useMutation({
+        mutationFn: async (id: string) => {
+            await api.delete(`/api/integrations/${id}`);
+        },
+        onSuccess: () => {
+            toast.success('Integração desconectada');
+            queryClient.invalidateQueries({ queryKey: ['integrations', selectedRestaurant] });
+            queryClient.invalidateQueries({ queryKey: ['integration-platforms'] });
+        },
+    });
+
+    // Sync mutation
+    const syncMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const res = await api.post(`/api/integrations/${id}/sync`);
+            return res.data;
+        },
+        onSuccess: () => {
+            toast.success('Sincronização iniciada');
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error?.message || 'Erro ao sincronizar');
+        }
+    });
+
+    // Test connection mutation
+    const testMutation = useMutation({
+        mutationFn: async (id: string) => {
+            const res = await api.post(`/api/integrations/${id}/test`);
+            return res.data;
+        },
+        onSuccess: (data) => {
+            if (data.success) {
+                toast.success('Conexão testada com sucesso!');
+                queryClient.invalidateQueries({ queryKey: ['integrations', selectedRestaurant] });
+            } else {
+                toast.error('Teste de conexão falhou');
+            }
+        },
+        onError: (error: any) => {
+            toast.error(error.response?.data?.error?.message || 'Erro ao testar conexão');
+        },
+    });
+
     const selectedRestaurantData = restaurants.find(r => r.id === selectedRestaurant);
+
+    const handleReconnect = (integration: Integration) => {
+        const platform = platformsData?.sales.find(p => p.id === integration.platform)
+            || platformsData?.logistics.find(p => p.id === integration.platform);
+
+        if (platform) {
+            setCredentials({});
+            setShowCredentialModal(platform);
+        }
+    };
 
     const handleConnect = (platform: Platform) => {
         setCredentials({});
@@ -174,13 +229,58 @@ export default function Integrations() {
                             </h3>
                             <div className="space-y-3">
                                 {integrations.map((integration) => (
-                                    <div key={integration.id} className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10">
-                                        <div className="flex items-center gap-3">
+                                    <div key={integration.id} className="flex flex-col md:flex-row items-center justify-between p-4 rounded-xl bg-slate-800/80 border border-slate-700 gap-4">
+                                        <div className="flex items-center gap-3 w-full md:w-auto">
                                             <span className="text-2xl">{integration.platformInfo?.logo || '🔌'}</span>
                                             <div>
                                                 <p className="font-medium text-white">{integration.name}</p>
-                                                <StatusBadge status={integration.status} />
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <StatusBadge status={integration.status} />
+                                                    {integration.lastSyncAt && (
+                                                        <span className="text-xs text-gray-400">
+                                                            {new Date(integration.lastSyncAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-2 w-full md:w-auto justify-end border-t md:border-t-0 border-white/5 pt-3 md:pt-0">
+                                            <button
+                                                onClick={() => testMutation.mutate(integration.id)}
+                                                disabled={testMutation.isPending}
+                                                className="btn bg-blue-600 hover:bg-blue-700 text-white border-none btn-sm h-9"
+                                            >
+                                                <RefreshCw className={`w-4 h-4 mr-2 ${testMutation.isPending ? 'animate-spin' : ''}`} />
+                                                Testar
+                                            </button>
+
+                                            <button
+                                                onClick={() => handleReconnect(integration)}
+                                                className="btn bg-slate-700 hover:bg-slate-600 text-white border-none btn-sm h-9"
+                                            >
+                                                <Settings className="w-4 h-4 mr-2" />
+                                                Configurar
+                                            </button>
+
+                                            <div className="w-px h-6 bg-white/10 mx-2 hidden md:block"></div>
+
+                                            <button
+                                                onClick={() => syncMutation.mutate(integration.id)}
+                                                disabled={integration.status !== 'CONNECTED'}
+                                                className="btn btn-ghost btn-square btn-sm text-blue-400 hover:bg-blue-500/10"
+                                                title="Sincronizar"
+                                            >
+                                                <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+                                            </button>
+
+                                            <button
+                                                onClick={() => disconnectMutation.mutate(integration.id)}
+                                                className="btn btn-ghost btn-square btn-sm text-red-400 hover:bg-red-500/10"
+                                                title="Desconectar"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     </div>
                                 ))}

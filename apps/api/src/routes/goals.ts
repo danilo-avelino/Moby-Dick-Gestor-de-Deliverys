@@ -37,7 +37,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         },
     }, async (request, reply) => {
         const where: any = {
-            restaurantId: request.user!.costCenterId,
+            costCenterId: request.user!.costCenterId,
         };
 
         if (request.query.userId) {
@@ -89,7 +89,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
     }, async (request, reply) => {
         const goals = await prisma.goal.findMany({
             where: {
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
                 userId: request.user!.id,
                 isActive: true,
             },
@@ -127,7 +127,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         // If userId specified, verify user belongs to restaurant
         if (body.userId) {
             const user = await prisma.user.findFirst({
-                where: { id: body.userId, restaurantId: request.user!.costCenterId },
+                where: { id: body.userId, costCenterId: request.user!.costCenterId },
             });
             if (!user) {
                 throw errors.notFound('User not found');
@@ -137,7 +137,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const goal = await prisma.goal.create({
             data: {
                 ...body,
-                restaurantId: request.user!.costCenterId!,
+                costCenterId: request.user!.costCenterId!,
                 periodStart: new Date(body.periodStart),
                 periodEnd: new Date(body.periodEnd),
             },
@@ -174,7 +174,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const goal = await prisma.goal.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
             },
         });
 
@@ -196,7 +196,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         if (achievedNow) {
             await prisma.alert.create({
                 data: {
-                    restaurantId: request.user!.costCenterId!,
+                    costCenterId: request.user!.costCenterId!,
                     type: 'GOAL_ACHIEVED',
                     severity: 'LOW',
                     title: `Meta Atingida: ${goal.name}`,
@@ -246,7 +246,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const goal = await prisma.goal.findFirst({
             where: {
                 id: request.params.id,
-                restaurantId: request.user!.costCenterId,
+                costCenterId: request.user!.costCenterId,
             },
         });
 
@@ -279,7 +279,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const achievements = await prisma.achievement.groupBy({
             by: ['userId'],
             where: {
-                user: { restaurantId: request.user!.costCenterId },
+                user: { costCenterId: request.user!.costCenterId },
             },
             _sum: { pointsAwarded: true },
             _count: true,
@@ -322,7 +322,7 @@ export async function goalRoutes(fastify: FastifyInstance) {
         const achievements = await prisma.achievement.findMany({
             where: {
                 userId: request.params.userId,
-                user: { restaurantId: request.user!.costCenterId },
+                user: { costCenterId: request.user!.costCenterId },
             },
             orderBy: { earnedAt: 'desc' },
         });

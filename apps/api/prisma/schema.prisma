@@ -1555,6 +1555,7 @@ model InventorySession {
   precision     Float?            // Overall precision percentage (0-100)
   itemsCount    Int               @default(0)
   itemsCorrect  Int               @default(0)
+  itemsIncorrect Int              @default(0)
   
   notes         String?
   createdBy     String?           // User ID name snapshot

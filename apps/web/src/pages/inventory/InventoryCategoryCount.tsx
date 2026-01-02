@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function InventoryCategoryCount() {
@@ -13,12 +13,13 @@ export default function InventoryCategoryCount() {
     // Saving on blur is better for UX.
     const [localCounts, setLocalCounts] = useState<Record<string, string>>({});
 
-    const { data: items, isLoading } = useQuery({
+    const { data: response, isLoading } = useQuery({
         queryKey: ['inventory-items', id, categoryId],
         queryFn: () => api.get(`/api/inventory/${id}?categoryId=${categoryId === 'uncategorized' ? '' : categoryId}`).then(r => r.data.data),
     });
 
-    const categoryName = items?.[0]?.product?.category?.name || 'Sem Categoria';
+    const items = response?.items || [];
+    const categoryName = items?.[0]?.product?.category?.name || items?.[0]?.categoryName || 'Sem Categoria';
 
     const updateMutation = useMutation({
         mutationFn: (data: { itemId: string; quantity: number }) =>
@@ -54,8 +55,13 @@ export default function InventoryCategoryCount() {
                     <ArrowLeft className="w-5 h-5" />
                 </Link>
                 <div>
-                    <h1 className="text-2xl font-bold text-white">{categoryName}</h1>
-                    <p className="text-gray-400">Digite a quantidade real encontrada no estoque</p>
+                    <h1 className="text-4xl font-black text-white flex items-center gap-3">
+                        {categoryName}
+                        {items?.every((i: any) => i.countedQuantity !== null) && (
+                            <CheckCircle className="w-8 h-8 text-green-500" />
+                        )}
+                    </h1>
+                    <p className="text-gray-400 text-lg">Digite a quantidade real encontrada no estoque</p>
                 </div>
 
                 <button
@@ -81,7 +87,9 @@ export default function InventoryCategoryCount() {
 
             <div className="glass-card">
                 <div className="space-y-4">
-                    {items.map((item: any) => {
+                    {(!items || items.length === 0) ? (
+                        <div className="p-8 text-center text-gray-500">Nenhum item nesta categoria.</div>
+                    ) : items.map((item: any) => {
                         const isCounted = item.countedQuantity !== null;
                         const inputValue = localCounts[item.id] !== undefined
                             ? localCounts[item.id]
@@ -106,9 +114,6 @@ export default function InventoryCategoryCount() {
                                 <div className="flex items-center gap-4">
                                     <div className="text-right hidden sm:block">
                                         <p className="text-xs text-gray-500">Qtd. Estoque</p>
-                                        {/* BLIND COUNT: We should NOT show current stock presumably? 
-                                            The prompt says "sem indicar o estoque atual" (without indicating current stock).
-                                            So I will show specific blank or just hide it. */}
                                         <div className="w-20 h-8 bg-gray-800 rounded animate-pulse opacity-20"></div>
                                     </div>
 

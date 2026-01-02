@@ -1,23 +1,21 @@
+
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from 'database';
 
-// function calculateAverage(numbers: (number | null)[]): number | null {
-//     const valid = numbers.filter((n): n is number => n !== null);
-//     if (valid.length === 0) return null;
-//     return valid.reduce((a, b) => a + b, 0) / valid.length;
-// }
-// Inline version used below or simplified logic.
-
 function calculateAverage(numbers: (number | null)[]): number | null {
-    const valid = numbers.filter((n): n is number => n !== null);
+    // Filter valid numbers:
+    // 1. Not null/NaN
+    // 2. Positive (> 0) to ignore zeroed data
+    // 3. Not outlier (> 240m / 4h)
+    const valid = numbers.filter((n): n is number => n !== null && !isNaN(n) && n > 0 && n <= 240);
     if (valid.length === 0) return null;
     return valid.reduce((a, b) => a + b, 0) / valid.length;
 }
 
 // Schemas
 const workTimesQuerySchema = z.object({
-    restaurantId: z.string().optional(),
+    costCenterId: z.string().optional(),
     startDate: z.string().optional(),
     endDate: z.string().optional(),
     period: z.enum(['yesterday', 'last7days', 'thisMonth', 'lastMonth', 'custom']).optional(),
@@ -59,9 +57,8 @@ function getDateRange(period?: string, startDate?: string, endDate?: string): { 
         return { start: new Date(startDate), end: new Date(endDate) };
     }
 
-    // Default: last 30 days
-    const start = new Date(today);
-    start.setDate(start.getDate() - 30);
+    // Default: this month
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
     return { start, end: now };
 }
 
@@ -77,38 +74,81 @@ export async function workTimesRoutes(fastify: FastifyInstance) {
     });
 
     /**
+     * Helper to process orders and calculate times
+     */
+    const processOrderTimes = (order: any) => {
+        const orderDatetime = order.createdAt;
+        const readyDatetime = order.readyAt;
+        const deliveredDatetime = order.deliveredAt;
+
+        // Find when it went out for delivery
+        const outForDeliveryLog = order.statusHistory?.find((h: any) => h.toStatus === 'EM_ENTREGA');
+        const outForDeliveryDatetime = outForDeliveryLog ? outForDeliveryLog.createdAt : null;
+
+        const prepTime = readyDatetime && orderDatetime
+            ? (new Date(readyDatetime).getTime() - new Date(orderDatetime).getTime()) / 60000
+            : null;
+
+        const pickupTime = outForDeliveryDatetime && readyDatetime
+            ? (new Date(outForDeliveryDatetime).getTime() - new Date(readyDatetime).getTime()) / 60000
+            : null;
+
+        const deliveryTime = deliveredDatetime && outForDeliveryDatetime
+            ? (new Date(deliveredDatetime).getTime() - new Date(outForDeliveryDatetime).getTime()) / 60000
+            : null;
+
+        const totalTime = deliveredDatetime && orderDatetime
+            ? (new Date(deliveredDatetime).getTime() - new Date(orderDatetime).getTime()) / 60000
+            : null;
+
+        return {
+            ...order,
+            orderDatetime, // For compatibility
+            readyDatetime,
+            outForDeliveryDatetime,
+            deliveredDatetime,
+            prepTime,
+            pickupTime,
+            deliveryTime,
+            totalTime
+        };
+    };
+
+    /**
      * GET /work-times/stats
-     * Get aggregated statistics for work times
      */
     fastify.get('/stats', async (request) => {
         const query = workTimesQuerySchema.parse(request.query);
         const { start, end } = getDateRange(query.period, query.startDate, query.endDate);
-        const user = request.user as { restaurantId: string };
+        const user = request.user as { costCenterId: string; role: string };
 
         const where: any = {
-            orderDatetime: {
-                gte: start,
-                lte: end,
-            },
+            createdAt: { gte: start, lte: end },
+            status: 'CONCLUIDO' // Only concluded orders for stats? Or all? Usually stats are for completed workflows.
         };
 
-        // If specific restaurant selected
-        if (query.restaurantId && query.restaurantId !== 'all') {
-            where.restaurantId = query.restaurantId;
-        } else {
-            // Otherwise filter by user's restaurant
-            where.restaurantId = user.restaurantId;
+        // Permission filtering
+        if (query.costCenterId && query.costCenterId !== 'all') {
+            where.costCenterId = query.costCenterId;
+        } else if (user.role !== 'SUPER_ADMIN') {
+            where.costCenterId = user.costCenterId;
         }
 
-        const orders = await prisma.order.findMany({
+        const ordersData = await prisma.pdvOrder.findMany({
             where,
             select: {
-                prepTime: true,
-                pickupTime: true,
-                deliveryTime: true,
-                totalTime: true,
+                createdAt: true,
+                readyAt: true,
+                deliveredAt: true,
+                statusHistory: {
+                    where: { toStatus: 'EM_ENTREGA' },
+                    select: { createdAt: true, toStatus: true },
+                    take: 1
+                }
             },
         });
+
+        const orders = ordersData.map(processOrderTimes);
 
         const stats = {
             totalOrders: orders.length,
@@ -118,15 +158,11 @@ export async function workTimesRoutes(fastify: FastifyInstance) {
             avgTotalTime: calculateAverage(orders.map(o => o.totalTime)),
         };
 
-        return {
-            success: true,
-            data: stats,
-        };
+        return { success: true, data: stats };
     });
 
     /**
      * GET /work-times/orders
-     * Get paginated list of orders with times
      */
     fastify.get('/orders', async (request) => {
         const query = workTimesQuerySchema.parse(request.query);
@@ -134,53 +170,55 @@ export async function workTimesRoutes(fastify: FastifyInstance) {
         const page = parseInt(query.page);
         const limit = parseInt(query.limit);
         const skip = (page - 1) * limit;
-        const user = request.user as { restaurantId: string };
+        const user = request.user as { costCenterId: string; role: string };
 
         const where: any = {
-            orderDatetime: {
-                gte: start,
-                lte: end,
-            },
+            createdAt: { gte: start, lte: end },
         };
 
-        if (query.restaurantId && query.restaurantId !== 'all') {
-            where.restaurantId = query.restaurantId;
-        } else {
-            where.restaurantId = user.restaurantId;
+        if (query.costCenterId && query.costCenterId !== 'all') {
+            where.costCenterId = query.costCenterId;
+        } else if (user.role !== 'SUPER_ADMIN') {
+            where.costCenterId = user.costCenterId;
         }
 
-        const [orders, total] = await Promise.all([
-            prisma.order.findMany({
+        const [ordersData, total] = await Promise.all([
+            prisma.pdvOrder.findMany({
                 where,
                 select: {
                     id: true,
-                    externalId: true,
-                    logisticsProvider: true,
-                    orderDatetime: true,
-                    readyDatetime: true,
-                    outForDeliveryDatetime: true,
-                    deliveredDatetime: true,
-                    prepTime: true,
-                    pickupTime: true,
-                    deliveryTime: true,
-                    totalTime: true,
+                    code: true, // externalId
+                    salesChannel: true, // logisticsProvider
+                    createdAt: true, // orderDatetime
+                    readyAt: true, // readyDatetime
+                    deliveredAt: true, // deliveredDatetime
                     customerName: true,
-                    orderValue: true,
-                    restaurant: {
-                        select: {
-                            id: true,
-                            name: true,
-                        },
+                    total: true, // orderValue
+                    statusHistory: {
+                        where: { toStatus: 'EM_ENTREGA' },
+                        select: { createdAt: true, toStatus: true },
+                        take: 1
                     },
+                    costCenter: {
+                        select: { id: true, name: true }
+                    }
                 },
-                orderBy: {
-                    [query.sortBy]: query.sortOrder,
-                },
+                orderBy: { createdAt: 'desc' }, // Map sortBy if needed, defaulting to createdAt desc
                 skip,
                 take: limit,
             }),
-            prisma.order.count({ where }),
+            prisma.pdvOrder.count({ where }),
         ]);
+
+        const orders = ordersData.map(order => {
+            const processed = processOrderTimes(order);
+            return {
+                ...processed,
+                externalId: order.code,
+                logisticsProvider: order.salesChannel,
+                orderValue: order.total,
+            };
+        });
 
         return {
             success: true,
@@ -195,91 +233,40 @@ export async function workTimesRoutes(fastify: FastifyInstance) {
     });
 
     /**
-     * GET /work-times/by-restaurant
-     * Get stats grouped by restaurant
-     */
-    fastify.get('/by-restaurant', async (request) => {
-        const query = workTimesQuerySchema.parse(request.query);
-        const { start, end } = getDateRange(query.period, query.startDate, query.endDate);
-        const user = request.user as { restaurantId: string };
-
-        // Get all restaurants accessible to user (for now, just their restaurant)
-        const restaurants = await prisma.restaurant.findMany({
-            where: { id: user.restaurantId },
-            select: { id: true, name: true },
-        });
-
-        const restaurantStats = await Promise.all(
-            restaurants.map(async (restaurant) => {
-                const orders = await prisma.order.findMany({
-                    where: {
-                        restaurantId: restaurant.id,
-                        orderDatetime: {
-                            gte: start,
-                            lte: end,
-                        },
-                    },
-                    select: {
-                        prepTime: true,
-                        pickupTime: true,
-                        deliveryTime: true,
-                        totalTime: true,
-                    },
-                });
-
-                return {
-                    restaurantId: restaurant.id,
-                    restaurantName: restaurant.name,
-                    orderCount: orders.length,
-                    avgPrepTime: calculateAverage(orders.map(o => o.prepTime)),
-                    avgPickupTime: calculateAverage(orders.map(o => o.pickupTime)),
-                    avgDeliveryTime: calculateAverage(orders.map(o => o.deliveryTime)),
-                    avgTotalTime: calculateAverage(orders.map(o => o.totalTime)),
-                };
-            })
-        );
-
-        return {
-            success: true,
-            data: restaurantStats,
-        };
-    });
-
-    /**
      * GET /work-times/evolution
-     * Get daily averages for chart
      */
     fastify.get('/evolution', async (request) => {
         const query = workTimesQuerySchema.parse(request.query);
         const { start, end } = getDateRange(query.period, query.startDate, query.endDate);
-        const user = request.user as { restaurantId: string };
+        const user = request.user as { costCenterId: string; role: string };
 
         const where: any = {
-            orderDatetime: {
-                gte: start,
-                lte: end,
-            },
+            createdAt: { gte: start, lte: end },
+            status: 'CONCLUIDO'
         };
 
-        if (query.restaurantId && query.restaurantId !== 'all') {
-            where.restaurantId = query.restaurantId;
-        } else {
-            where.restaurantId = user.restaurantId;
+        if (query.costCenterId && query.costCenterId !== 'all') {
+            where.costCenterId = query.costCenterId;
+        } else if (user.role !== 'SUPER_ADMIN') {
+            where.costCenterId = user.costCenterId;
         }
 
-        const orders = await prisma.order.findMany({
+        const ordersData = await prisma.pdvOrder.findMany({
             where,
             select: {
-                orderDatetime: true,
-                prepTime: true,
-                pickupTime: true,
-                deliveryTime: true,
-                totalTime: true,
+                createdAt: true,
+                readyAt: true,
+                deliveredAt: true,
+                statusHistory: {
+                    where: { toStatus: 'EM_ENTREGA' },
+                    select: { createdAt: true, toStatus: true },
+                    take: 1
+                }
             },
-            orderBy: {
-                orderDatetime: 'asc',
-            },
+            orderBy: { createdAt: 'asc' },
         });
+
+        const orders = ordersData.map(processOrderTimes);
 
         // Group by date
         const dailyData: Record<string, {
@@ -292,7 +279,6 @@ export async function workTimesRoutes(fastify: FastifyInstance) {
 
         orders.forEach(order => {
             const dateKey = order.orderDatetime.toISOString().split('T')[0];
-
             if (!dailyData[dateKey]) {
                 dailyData[dateKey] = {
                     date: dateKey,
@@ -315,12 +301,9 @@ export async function workTimesRoutes(fastify: FastifyInstance) {
             avgPickupTime: calculateAverage(day.pickupTimes),
             avgDeliveryTime: calculateAverage(day.deliveryTimes),
             avgTotalTime: calculateAverage(day.totalTimes),
-            orderCount: day.prepTimes.length + day.pickupTimes.length,
+            orderCount: day.prepTimes.length,
         }));
 
-        return {
-            success: true,
-            data: evolution,
-        };
+        return { success: true, data: evolution };
     });
 }
